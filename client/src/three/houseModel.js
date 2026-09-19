@@ -45,18 +45,22 @@ export const WALL_COLOR_EXTERIOR = '#e4d6b8'; // slightly warmer/darker "stucco"
 // small hand-tuned presets, it never invents coordinates. No style (old saved
 // designs, samples, the AI/upload path) falls back to exactly the previous look.
 const STYLE_PRESETS = {
-  modern: { roofType: 'flat', wallColor: '#e9e5da', roofColor: '#c7c0b0', accentColor: '#2b2f36', wallHeightScale: 1.08, windowScale: 1.35 },
-  contemporary: { roofType: 'flat', wallColor: '#dcd5c6', roofColor: '#8f8a7c', accentColor: '#33383f', wallHeightScale: 1.05, windowScale: 1.25 },
-  'compact urban': { roofType: 'flat', wallColor: '#c98b6b', roofColor: '#9c8f80', accentColor: '#2b2f36', windowScale: 1.1 },
-  traditional: { roofType: 'hip', wallColor: '#f0e6d2', roofColor: '#a2543a', accentColor: '#6b4a36' },
-  farmhouse: { roofType: 'hip', wallColor: '#ece3d3', roofColor: '#6b4a36', accentColor: '#5b4632', roofHeightScale: 1.25 },
-  minimalist: { roofType: 'flat', wallColor: '#f2f0ea', roofColor: '#cfcdc5', accentColor: '#22252b', wallHeightScale: 1.1, windowScale: 1.4 },
-  mediterranean: { roofType: 'hip', wallColor: '#f2ddb0', roofColor: '#b5502e', accentColor: '#2b2b2b', roofHeightScale: 1.1 },
-  colonial: { roofType: 'hip', wallColor: '#f5f1e6', roofColor: '#3a3f47', accentColor: '#1f1f1f' },
-  industrial: { roofType: 'flat', wallColor: '#9a958c', roofColor: '#2b2b2b', accentColor: '#8a4a2f', windowScale: 1.3 },
-  scandinavian: { roofType: 'flat', wallColor: '#eae6da', roofColor: '#3d4147', accentColor: '#a67c52', windowScale: 1.2 },
+  // Realism fields (on top of the shape/colour ones): wallTexture picks the photo
+  // material the exterior walls use ('stucco' tinted by wallColor, or an untinted
+  // 'brick'/'concrete'), trimColor colours fascia/lintels, and shutters/chimney
+  // switch those details on for the styles they suit.
+  modern: { roofType: 'flat', wallColor: '#e9e5da', roofColor: '#c7c0b0', accentColor: '#2b2f36', wallHeightScale: 1.08, windowScale: 1.35, wallTexture: 'stucco', trimColor: '#2b2f36' },
+  contemporary: { roofType: 'flat', wallColor: '#dcd5c6', roofColor: '#8f8a7c', accentColor: '#33383f', wallHeightScale: 1.05, windowScale: 1.25, wallTexture: 'stucco', trimColor: '#33383f' },
+  'compact urban': { roofType: 'flat', wallColor: '#c98b6b', roofColor: '#9c8f80', accentColor: '#2b2f36', windowScale: 1.1, wallTexture: 'brick', trimColor: '#e8e2d5' },
+  traditional: { roofType: 'hip', wallColor: '#f0e6d2', roofColor: '#a2543a', accentColor: '#6b4a36', wallTexture: 'stucco', trimColor: '#f5f0e6', shutters: true, chimney: true },
+  farmhouse: { roofType: 'hip', wallColor: '#ece3d3', roofColor: '#6b4a36', accentColor: '#5b4632', roofHeightScale: 1.25, wallTexture: 'stucco', trimColor: '#f3ede0', shutters: true, chimney: true },
+  minimalist: { roofType: 'flat', wallColor: '#f2f0ea', roofColor: '#cfcdc5', accentColor: '#22252b', wallHeightScale: 1.1, windowScale: 1.4, wallTexture: 'stucco', trimColor: '#22252b' },
+  mediterranean: { roofType: 'hip', wallColor: '#f2ddb0', roofColor: '#b5502e', accentColor: '#2b2b2b', roofHeightScale: 1.1, wallTexture: 'stucco', trimColor: '#f7efe0', shutters: true, chimney: true },
+  colonial: { roofType: 'hip', wallColor: '#f5f1e6', roofColor: '#3a3f47', accentColor: '#1f1f1f', wallTexture: 'brick', trimColor: '#faf7f0', shutters: true, chimney: true },
+  industrial: { roofType: 'flat', wallColor: '#9a958c', roofColor: '#2b2b2b', accentColor: '#8a4a2f', windowScale: 1.3, wallTexture: 'concrete', trimColor: '#2b2b2b' },
+  scandinavian: { roofType: 'flat', wallColor: '#eae6da', roofColor: '#3d4147', accentColor: '#a67c52', windowScale: 1.2, wallTexture: 'stucco', trimColor: '#f0ece2' },
 };
-const DEFAULT_STYLE_PRESET = { roofType: 'hip', wallColor: WALL_COLOR_EXTERIOR, roofColor: '#a2543a', accentColor: '#8a6a52' };
+const DEFAULT_STYLE_PRESET = { roofType: 'hip', wallColor: WALL_COLOR_EXTERIOR, roofColor: '#a2543a', accentColor: '#8a6a52', wallTexture: 'stucco', trimColor: '#f1ede4' };
 
 function resolveStylePreset(style) {
   return STYLE_PRESETS[String(style || '').toLowerCase().trim()] || DEFAULT_STYLE_PRESET;
@@ -172,6 +176,7 @@ function buildRoomGeometry(room, yBase, doors, windows, footprint, dims) {
 
   const wallSegments = [];
   const windowPanes = [];
+  const doorLeaves = [];
 
   sides.forEach(({ side, span, fixed, exterior }) => {
     const thickness = exterior ? dims.wallThicknessExterior : dims.wallThicknessInterior;
@@ -194,6 +199,43 @@ function buildRoomGeometry(room, yBase, doors, windows, footprint, dims) {
         position: horizontal
           ? [room.x + center, yBase + dims.wallHeight / 2, fixed]
           : [fixed, yBase + dims.wallHeight / 2, room.y + center],
+      });
+    });
+
+    // Door leaf + frame + handle in each gap, plus a solid wall piece ABOVE the
+    // leaf (the gap itself runs the full wall height, which read as a hole up to
+    // the ceiling). The lintel piece sits above head height, and the walkthrough
+    // colliders skip anything outside the camera's Y range, so walking through
+    // doorways is unaffected. All sizes are fractions of wall height / thickness
+    // so they stay correct in metres or feet.
+    doorGaps.forEach((g, i) => {
+      const dCenter = g.offset + g.width / 2;
+      const dTrim = dims.wallThicknessInterior * 0.45;
+      const leafH = dims.wallHeight * 0.78;
+      const frameDepth = thickness * 1.08;
+      const leafThick = thickness * 0.4;
+      const at = (along, y) => (horizontal ? [room.x + dCenter + along, y, fixed] : [fixed, y, room.y + dCenter + along]);
+      const box = (sAlong, sY, sDepth) => (horizontal ? [sAlong, sY, sDepth] : [sDepth, sY, sAlong]);
+      const jambOffset = g.width / 2 - dTrim / 2;
+      const lintelH = dims.wallHeight - leafH - dTrim;
+      if (lintelH > 0.05) {
+        wallSegments.push({
+          key: `${room.name}-${side}-lintel-${i}`,
+          exterior, side,
+          size: box(g.width, lintelH, thickness),
+          position: at(0, yBase + leafH + dTrim + lintelH / 2),
+        });
+      }
+      doorLeaves.push({
+        key: `${room.name}-${side}-door-${i}`,
+        side, exterior, isEntrance: !!g.isEntrance,
+        leaf: { size: box(g.width - dTrim * 2, leafH, leafThick), position: at(0, yBase + leafH / 2) },
+        frame: [
+          { size: box(g.width, dTrim, frameDepth), position: at(0, yBase + leafH + dTrim / 2) },
+          { size: box(dTrim, leafH, frameDepth), position: at(-jambOffset, yBase + leafH / 2) },
+          { size: box(dTrim, leafH, frameDepth), position: at(jambOffset, yBase + leafH / 2) },
+        ],
+        handle: { size: box(dTrim * 0.6, dTrim * 0.6, leafThick * 2.6), position: at(g.width / 2 - dTrim * 2.6, yBase + leafH * 0.5) },
       });
     });
 
@@ -248,7 +290,7 @@ function buildRoomGeometry(room, yBase, doors, windows, footprint, dims) {
       });
   });
 
-  return { wallSegments, windowPanes };
+  return { wallSegments, windowPanes, doorLeaves };
 }
 
 // Which way a room's wall side faces "outward" (away from the building), in the
@@ -697,7 +739,52 @@ function buildBoundaryWallModel(plotWidth, plotDepth, gateCenter, gateWidth, dim
     position: [x, pillarHeight / 2, z],
   }));
 
-  return { segments, pillars };
+  return {
+    segments, pillars,
+    gate: { center: (gateStart + gateEnd) / 2, width: gateEnd - gateStart, z: inset, height: wallHeight * 0.95, thickness: wallThickness * 0.35 },
+  };
+}
+
+// A chimney rising through a hip roof's ridge (styles that ask for one). The base
+// is buried inside the roof so it never floats; a flat capping slab sits on top.
+function buildChimney(preset, roof, totalHeight, footprint, dims) {
+  if (!preset.chimney || roof.type !== 'hip') return null;
+  const ridgeHalf = Math.abs(footprint.width - footprint.depth) / 2;
+  const longX = footprint.width >= footprint.depth;
+  const size = dims.wallThicknessExterior * 2.4;
+  const along = ridgeHalf > size * 2 ? ridgeHalf * 0.5 : 0;
+  const px = footprint.x + footprint.width / 2 + (longX ? along : 0);
+  const pz = footprint.y + footprint.depth / 2 + (longX ? 0 : along);
+  const bottomY = totalHeight + roof.height * 0.35;
+  const topY = totalHeight + roof.height + dims.wallHeight * 0.32;
+  return {
+    position: [px, (bottomY + topY) / 2, pz],
+    size: [size, topY - bottomY, size],
+    cap: { size: [size * 1.3, size * 0.18, size * 1.3], position: [px, topY + size * 0.09, pz] },
+  };
+}
+
+// A paved path from the porch step out to the plot edge, along the entrance
+// door's outward direction. Skipped when it would cross the parking/garden pad.
+function buildEntrancePath(porch, wall, plotW, plotD, dims, avoid) {
+  if (!porch || !wall) return null;
+  const dir = OUTWARD[wall];
+  const horizontal = wall === 'north' || wall === 'south';
+  const step = porch.step;
+  const outer = horizontal ? step.position[2] + dir.sign * step.size[2] / 2 : step.position[0] + dir.sign * step.size[0] / 2;
+  const edge = dir.sign > 0 ? (horizontal ? plotD : plotW) : 0;
+  const length = Math.abs(edge - outer) - dims.wallThicknessExterior * 0.65;
+  if (length < dims.wallHeight * 0.5) return null;
+  const width = (horizontal ? step.size[0] : step.size[2]) * 0.5;
+  const thickness = dims.slabThickness * 0.3;
+  const mid = outer + dir.sign * length / 2;
+  const along = horizontal ? step.position[0] : step.position[2];
+  const size = horizontal ? [width, thickness, length] : [length, thickness, width];
+  const position = horizontal ? [along, thickness / 2, mid] : [mid, thickness / 2, along];
+  const overlaps = avoid.some((r) => (
+    Math.abs(position[0] - r.x) < (size[0] + r.w) / 2 && Math.abs(position[2] - r.z) < (size[2] + r.d) / 2
+  ));
+  return overlaps ? null : { size, position };
 }
 
 // The single entry point: normalizes any of the three accepted layout shapes and
@@ -738,7 +825,7 @@ export function buildHouseModel(rawLayout) {
     const rooms = floor.rooms.map((room) => {
       const rx = room.x + room.width / 2;
       const rz = room.y + room.depth / 2;
-      const { wallSegments, windowPanes } = buildRoomGeometry(room, yBase, doors, windows, footprint, dims);
+      const { wallSegments, windowPanes, doorLeaves } = buildRoomGeometry(room, yBase, doors, windows, footprint, dims);
       return {
         key: `${floor.level}-${room.name}`,
         room,
@@ -751,6 +838,7 @@ export function buildHouseModel(rawLayout) {
         },
         wallSegments,
         windowPanes,
+        doorLeaves,
         label: { text: room.name, position: [rx, yBase + dims.wallHeight + dims.windowSill * 0.5, rz] },
       };
     });
@@ -901,6 +989,13 @@ export function buildHouseModel(rawLayout) {
       )
     : null;
 
+  const chimney = buildChimney(preset, roof, totalHeight, buildingFootprint, dims);
+  const padRect = (pad) => (pad ? { x: pad.position[0], z: pad.position[2], w: pad.size[0], d: pad.size[2] } : null);
+  const entrancePath = buildEntrancePath(
+    entrancePorch, entranceDoor?.wall, W, D, dims,
+    [padRect(parkingModel?.pad), padRect(openSpaceModel?.pad)].filter(Boolean)
+  );
+
   // Lantern fixtures: a small warm-glow accent (emissive material, no real
   // light source — kept cheap) on the entrance porch posts and the gate
   // pillars, the classic "arriving at dusk" luxury-listing touch.
@@ -917,6 +1012,8 @@ export function buildHouseModel(rawLayout) {
   return {
     unit: layout.unit, dims, unitScale,
     style: layout.style, wallColorExterior: preset.wallColor, accentColor: preset.accentColor,
+    wallTexture: preset.wallTexture || 'stucco', trimColor: preset.trimColor || '#f1ede4', hasShutters: !!preset.shutters,
+    chimney, entrancePath,
     width: W, depth: D, floorToFloor, totalHeight, floorCount,
     ground: { size: Math.max(W, D) * 3, position: [cx, -0.02, cz] },
     // Same building-footprint fix as the roof above — the foundation slab should

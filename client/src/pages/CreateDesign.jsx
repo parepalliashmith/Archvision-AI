@@ -12,7 +12,7 @@ import { floorCountOf } from '../lib/layout.js';
 import { buildHouseModel } from '../three/houseModel.js';
 import { buildElevations } from '../three/elevations.js';
 
-const STYLE_OPTIONS = ['Modern', 'Traditional', 'Contemporary', 'Farmhouse', 'Compact urban'];
+const STYLE_OPTIONS = ['Modern', 'Traditional', 'Contemporary', 'Farmhouse', 'Compact urban', 'Minimalist', 'Mediterranean', 'Colonial', 'Industrial', 'Scandinavian'];
 const KITCHEN_OPTIONS = ['Open-plan', 'Closed / separate', 'Modular'];
 const LIVING_OPTIONS = ['Compact', 'Medium', 'Large / open-plan'];
 
@@ -27,6 +27,9 @@ const EMPTY_FORM = {
   kitchen: '',
   livingRoom: '',
   garden: false,
+  poojaRoom: false,
+  gym: false,
+  storeRoom: false,
   style: '',
 };
 
@@ -135,6 +138,9 @@ export default function CreateDesign({ loadedDesign, onSave, onFindBuilder, onNa
       floors: form.floors,
       parking: form.parking,
       garden: form.garden,
+      poojaRoom: form.poojaRoom,
+      gym: form.gym,
+      storeRoom: form.storeRoom,
       style: form.style || undefined,
       kitchenType: form.kitchen || undefined,
       livingRoomSize: form.livingRoom || undefined,
@@ -366,6 +372,18 @@ export default function CreateDesign({ loadedDesign, onSave, onFindBuilder, onNa
         <label className="field field-check">
           <input type="checkbox" checked={form.garden} onChange={(e) => update('garden', e.target.checked)} />
           <span>Wants a garden / open space</span>
+        </label>
+        <label className="field field-check">
+          <input type="checkbox" checked={form.poojaRoom} onChange={(e) => update('poojaRoom', e.target.checked)} />
+          <span>Add a pooja room</span>
+        </label>
+        <label className="field field-check">
+          <input type="checkbox" checked={form.gym} onChange={(e) => update('gym', e.target.checked)} />
+          <span>Add a home gym</span>
+        </label>
+        <label className="field field-check">
+          <input type="checkbox" checked={form.storeRoom} onChange={(e) => update('storeRoom', e.target.checked)} />
+          <span>Add a store room</span>
         </label>
         <div className="field-wide">
           <button

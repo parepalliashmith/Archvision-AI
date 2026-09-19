@@ -171,3 +171,66 @@ export function getFabricTexture() {
 export function getMarbleTexture() {
   return scaledSet(loadSet('marble', 'marble'), 1.5, 1.5);
 }
+
+// ---------------------------------------------------------------------------
+// Realism pass: extra CC0 sets (brick, stone, plaster, concrete, bark) plus a
+// UV-scaled box geometry so a photo texture keeps a REAL-WORLD scale on every
+// wall segment instead of stretching one fixed repeat over whatever length the
+// segment happens to be (a long wall used to smear the same 4x3 tile).
+// ---------------------------------------------------------------------------
+
+// Raw (unscaled, repeat=1) sets — callers pair these with makeTiledBoxGeometry,
+// which bakes the repeat into the geometry's UVs instead of the texture.
+export function getRawSet(kind) {
+  switch (kind) {
+    case 'brick': return loadSet('brick', 'brick');
+    case 'stone': return loadSet('stone', 'stone');
+    case 'plaster': return loadSet('plaster', 'plaster');
+    case 'concrete': return loadSet('concrete', 'concrete');
+    case 'bark': return loadSet('bark', 'bark');
+    case 'paving': return loadSet('paving', 'paving');
+    case 'stucco': return loadSet('stucco', 'exterior-wall');
+    default: return loadSet('stucco', 'exterior-wall');
+  }
+}
+
+// How much wall height one texture tile should cover, per material — chosen so
+// bricks/stones read at a believable size (brick ~ a 1.5 m tile) while plaster
+// and concrete, which have no strong coursing, use a bigger tile.
+export const WALL_TILE_FACTOR = { stucco: 1.25, plaster: 1.0, concrete: 1.0, brick: 0.55, stone: 0.6, bark: 0.35 };
+
+// Wood for door leaves — the floor-plank photo at a coarser scale.
+export function getDoorWoodTexture() {
+  return scaledSet(loadSet('wood', 'wood'), 0.6, 0.6);
+}
+
+// A BoxGeometry whose UVs are scaled to world size / `tile`, with a small
+// deterministic offset (from `seed`) so neighbouring segments don't repeat the
+// exact same patch. If `innerFace` is given ('px'|'nx'|'pz'|'nz'), that face gets
+// material group 1 and everything else group 0 — used to put plaster on the
+// inside of an exterior wall while the outside keeps the brick/stucco.
+const FACE_INDEX = { px: 0, nx: 1, py: 2, ny: 3, pz: 4, nz: 5 };
+export function makeTiledBoxGeometry(size, tile, seed = 0, innerFace = null) {
+  const g = new THREE.BoxGeometry(size[0], size[1], size[2]);
+  const uv = g.attributes.uv;
+  const faceDims = [[size[2], size[1]], [size[2], size[1]], [size[0], size[2]], [size[0], size[2]], [size[0], size[1]], [size[0], size[1]]];
+  const ou = (seed * 0.61803) % 1;
+  const ov = (seed * 0.32471) % 1;
+  for (let f = 0; f < 6; f++) {
+    for (let v = 0; v < 4; v++) {
+      const i = f * 4 + v;
+      uv.setXY(i, uv.getX(i) * faceDims[f][0] / tile + ou, uv.getY(i) * faceDims[f][1] / tile + ov);
+    }
+  }
+  uv.needsUpdate = true;
+  if (innerFace) {
+    const inner = FACE_INDEX[innerFace];
+    g.clearGroups();
+    // 6 indices per face; merge consecutive faces of the same material so the
+    // wall stays at most 3 draw calls.
+    if (inner > 0) g.addGroup(0, inner * 6, 0);
+    g.addGroup(inner * 6, 6, 1);
+    if (inner < 5) g.addGroup((inner + 1) * 6, (5 - inner) * 6, 0);
+  }
+  return g;
+}

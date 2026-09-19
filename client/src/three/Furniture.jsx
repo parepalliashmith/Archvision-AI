@@ -25,27 +25,47 @@
 // cache already returns the same shared instance every call, so there's nothing to
 // re-memoize per Furniture instance. Thinner trim/legs/frames are left as flat color —
 // too small on screen for photo detail to read, not worth the extra prop plumbing.
+import { createContext, useContext } from 'react';
+import { RoundedBox } from '@react-three/drei';
 import { getWoodFloorTexture, getFabricTexture, getMarbleTexture } from './textures.js';
+
+// Full-quality mode softens every furniture box's edges (RoundedBox); phones/low-spec
+// devices (`lite`) keep plain boxes to stay light. Provided by the default export.
+const LiteContext = createContext(false);
 
 const wood = getWoodFloorTexture();
 const fabric = getFabricTexture();
 const marble = getMarbleTexture();
 
 function Box({ size, position, color, roughness = 0.75, metalness = 0, transparent = false, opacity = 1, map = null, normalMap = null, roughnessMap = null }) {
+  const lite = useContext(LiteContext);
+  const material = (
+    <meshStandardMaterial
+      color={color}
+      roughness={roughnessMap ? 1 : roughness}
+      metalness={metalness}
+      transparent={transparent}
+      opacity={opacity}
+      map={map}
+      normalMap={normalMap}
+      roughnessMap={roughnessMap}
+    />
+  );
+  if (lite) {
+    return (
+      <mesh position={position} castShadow receiveShadow>
+        <boxGeometry args={size} />
+        {material}
+      </mesh>
+    );
+  }
+  // Rounded edge radius: a fraction of the smallest side, so a thin rug stays a
+  // slab while a sofa arm or mattress gets a visibly soft edge.
+  const radius = Math.min(size[0], size[1], size[2]) * 0.22;
   return (
-    <mesh position={position} castShadow receiveShadow>
-      <boxGeometry args={size} />
-      <meshStandardMaterial
-        color={color}
-        roughness={roughnessMap ? 1 : roughness}
-        metalness={metalness}
-        transparent={transparent}
-        opacity={opacity}
-        map={map}
-        normalMap={normalMap}
-        roughnessMap={roughnessMap}
-      />
-    </mesh>
+    <RoundedBox args={size} radius={radius} smoothness={3} position={position} castShadow receiveShadow>
+      {material}
+    </RoundedBox>
   );
 }
 
@@ -131,7 +151,15 @@ function WallArt({ x, y, z, w, h, scale, frameColor }) {
   );
 }
 
-export default function Furniture({ room, yBase, dims, scale, nightMode, accentColor }) {
+export default function Furniture({ lite = false, ...props }) {
+  return (
+    <LiteContext.Provider value={!!lite}>
+      <FurnitureInner {...props} />
+    </LiteContext.Provider>
+  );
+}
+
+function FurnitureInner({ room, yBase, dims, scale, nightMode, accentColor }) {
   const floorY = yBase + dims.slabThickness * 0.5;
   const cx = room.x + room.width / 2;
   const cz = room.y + room.depth / 2;

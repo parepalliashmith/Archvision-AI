@@ -476,6 +476,7 @@ const HouseViewer3D = forwardRef(function HouseViewer3D({ layout, height = 420, 
             nightMode={lightingMode === 'night'}
             furnitureGroupRef={furnitureGroupRef}
             landscapeGroupRef={landscapeGroupRef}
+            lite={lite}
           />
         )}
 

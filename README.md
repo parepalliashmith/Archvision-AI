@@ -359,3 +359,7 @@ Roughly in order of impact:
 - **`parent_id` lineage.** The database column already exists (§2) but nothing writes to it
   yet — wiring it up would let "Generate Another"/chat-edit versions show their actual
   derivation tree, not just a flat save list.
+
+## Credits
+
+Textures, fonts, libraries and services are credited with their licenses in [CREDITS.md](CREDITS.md).

@@ -26,31 +26,34 @@ export function buildHipRoofGeometry(width, depth, height, overhang) {
 
   const positions = [];
   const uvs = [];
-  // A shingle/tile texture (textures.js) needs UV coordinates to show its
-  // pattern at all — without them every face just samples one arbitrary texel
-  // and reads as a flat color. A true per-face planar UV (projected into each
-  // sloped face's own plane) would be more accurate, but for a subtle, mostly-
-  // isotropic shingle pattern a simple top-down (x,z) projection — the same
-  // technique terrain/roof shaders commonly use — tiles consistently across
-  // every face at effectively zero extra complexity; TILE is world units per
-  // texture repeat.
+  // Shingle/tile UVs measured ALONG each slope: u runs along the eave, v is the
+  // real distance up the slope from the eave (hypot of horizontal run and rise).
+  // The old top-down (x,z) projection stretched the texture on steep faces; this
+  // keeps tile size constant regardless of pitch. TILE is world units per repeat.
   const TILE = 8;
-  const pushVert = (p) => { positions.push(...p); uvs.push(p[0] / TILE, p[2] / TILE); };
-  const pushTri = (a, b, c) => { pushVert(a); pushVert(b); pushVert(c); };
-  const pushQuad = (a, b, c, d) => { pushTri(a, b, c); pushTri(a, c, d); };
+  const slope = { // per face: which axis is "along the eave" and where the eave line is
+    north: (p) => [p[0] / TILE, Math.hypot(p[2] + hd, p[1]) / TILE],
+    south: (p) => [p[0] / TILE, Math.hypot(hd - p[2], p[1]) / TILE],
+    west: (p) => [p[2] / TILE, Math.hypot(p[0] + hw, p[1]) / TILE],
+    east: (p) => [p[2] / TILE, Math.hypot(hw - p[0], p[1]) / TILE],
+    under: (p) => [p[0] / TILE, p[2] / TILE],
+  };
+  const pushVert = (p, f) => { positions.push(...p); uvs.push(...slope[f](p)); };
+  const pushTri = (a, b, c, f) => { pushVert(a, f); pushVert(b, f); pushVert(c, f); };
+  const pushQuad = (a, b, c, d, f) => { pushTri(a, b, c, f); pushTri(a, c, d, f); };
 
   if (longAxisIsX) {
-    pushQuad(A, B, R2, R1); // north slope
-    pushQuad(C, D, R1, R2); // south slope
-    pushTri(A, D, R1);      // west hip
-    pushTri(C, B, R2);      // east hip
+    pushQuad(A, B, R2, R1, 'north'); // north slope
+    pushQuad(C, D, R1, R2, 'south'); // south slope
+    pushTri(A, D, R1, 'west');       // west hip
+    pushTri(C, B, R2, 'east');       // east hip
   } else {
-    pushQuad(D, A, R1, R2); // west slope
-    pushQuad(B, C, R2, R1); // east slope
-    pushTri(D, C, R2);      // south hip
-    pushTri(B, A, R1);      // north hip
+    pushQuad(D, A, R1, R2, 'west');  // west slope
+    pushQuad(B, C, R2, R1, 'east');  // east slope
+    pushTri(D, C, R2, 'south');      // south hip
+    pushTri(B, A, R1, 'north');      // north hip
   }
-  pushQuad(A, D, C, B); // underside cap
+  pushQuad(A, D, C, B, 'under'); // underside cap
 
   const geometry = new THREE.BufferGeometry();
   geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
