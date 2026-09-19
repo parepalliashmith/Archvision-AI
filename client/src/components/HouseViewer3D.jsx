@@ -253,8 +253,8 @@ const HouseViewer3D = forwardRef(function HouseViewer3D({ layout, height = 420, 
     let currentMode = lightingMode;
     sc.setControlsEnabled(false);
 
-    const stream = gl.domElement.captureStream(30);
-    const recorder = new MediaRecorder(stream, { mimeType });
+    const stream = gl.domElement.captureStream(lite ? 30 : 60);
+    const recorder = new MediaRecorder(stream, { mimeType, videoBitsPerSecond: lite ? 6_000_000 : 12_000_000 });
     const chunks = [];
     recorder.ondataavailable = (e) => { if (e.data.size > 0) chunks.push(e.data); };
     const stopped = new Promise((resolve) => { recorder.onstop = resolve; });
@@ -268,7 +268,7 @@ const HouseViewer3D = forwardRef(function HouseViewer3D({ layout, height = 420, 
           setLightingModeState(targetMode);
           currentMode = targetMode;
         }
-        sc.setCameraView(step.preset, { duration: step.duration });
+        sc.setCameraView(step.preset, { duration: step.duration, ease: 'inOut' });
         await new Promise((res) => setTimeout(res, step.duration + step.hold));
       }
     } finally {
@@ -282,7 +282,7 @@ const HouseViewer3D = forwardRef(function HouseViewer3D({ layout, height = 420, 
 
     const blob = new Blob(chunks, { type: 'video/webm' });
     return { url: URL.createObjectURL(blob), blob };
-  }, [model, lightingMode]);
+  }, [model, lightingMode, lite]);
 
   // "Generate Video for Each Room": same recording mechanism as
   // generateTourVideo above, run once per room instead of once for a fixed
@@ -318,14 +318,14 @@ const HouseViewer3D = forwardRef(function HouseViewer3D({ layout, height = 420, 
           sc.setCameraPose(start, { duration: 0 });
           await new Promise((res) => requestAnimationFrame(() => requestAnimationFrame(res)));
 
-          const stream = gl.domElement.captureStream(30);
-          const recorder = new MediaRecorder(stream, { mimeType });
+          const stream = gl.domElement.captureStream(lite ? 30 : 60);
+          const recorder = new MediaRecorder(stream, { mimeType, videoBitsPerSecond: lite ? 6_000_000 : 12_000_000 });
           const chunks = [];
           recorder.ondataavailable = (e) => { if (e.data.size > 0) chunks.push(e.data); };
           const stopped = new Promise((resolve) => { recorder.onstop = resolve; });
           recorder.start();
 
-          sc.setCameraPose(end, { duration: 4000 });
+          sc.setCameraPose(end, { duration: 4000, ease: 'inOut' });
           await new Promise((res) => setTimeout(res, 4500));
 
           recorder.stop();
@@ -342,7 +342,7 @@ const HouseViewer3D = forwardRef(function HouseViewer3D({ layout, height = 420, 
     }
 
     return results;
-  }, [model, floorFilter]);
+  }, [model, floorFilter, lite]);
 
   useImperativeHandle(ref, () => ({
     setRoofVisible: (v) => setRoofVisibleState(v),

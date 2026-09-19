@@ -30,6 +30,12 @@ function easeOutCubic(t) {
   return 1 - Math.pow(1 - t, 3);
 }
 
+// Slow start AND slow finish — for recorded videos, where easeOutCubic's abrupt
+// start reads as a jerk at the beginning of every shot.
+function easeInOutCubic(t) {
+  return t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
+}
+
 const SceneController = forwardRef(function SceneController({ groupRef, model, onWalkthroughChange, autoRotate, onUserInteract }, ref) {
   const { camera, gl } = useThree();
   const orbitRef = useRef(null);
@@ -190,7 +196,7 @@ const SceneController = forwardRef(function SceneController({ groupRef, model, o
   // Each Room" has no business living in computePose's named-preset list).
   // duration in ms; 0 snaps instantly (used for the render-capture sequence,
   // which needs the pose settled before reading pixels, not mid-tween).
-  const tweenTo = useCallback((pose, duration = 650) => {
+  const tweenTo = useCallback((pose, duration = 650, ease = 'out') => {
     if (!groupRef.current || !orbitRef.current) return;
     const controls = orbitRef.current;
     if (!duration) {
@@ -207,17 +213,18 @@ const SceneController = forwardRef(function SceneController({ groupRef, model, o
       toTarget: new THREE.Vector3(...pose.target),
       start: performance.now(),
       duration,
+      ease,
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [camera, groupRef]);
 
-  const setCameraView = useCallback((preset, { duration = 650 } = {}) => {
-    tweenTo(computePose(preset), duration);
+  const setCameraView = useCallback((preset, { duration = 650, ease } = {}) => {
+    tweenTo(computePose(preset), duration, ease);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tweenTo]);
 
-  const setCameraPose = useCallback((pose, { duration = 650 } = {}) => {
-    tweenTo(pose, duration);
+  const setCameraPose = useCallback((pose, { duration = 650, ease } = {}) => {
+    tweenTo(pose, duration, ease);
   }, [tweenTo]);
 
   function ensurePointerLockControls() {
@@ -298,7 +305,7 @@ const SceneController = forwardRef(function SceneController({ groupRef, model, o
       const tween = tweenRef.current;
       if (tween) {
         const t = Math.min(1, (performance.now() - tween.start) / tween.duration);
-        const e = easeOutCubic(t);
+        const e = (tween.ease === 'inOut' ? easeInOutCubic : easeOutCubic)(t);
         camera.position.lerpVectors(tween.fromPos, tween.toPos, e);
         orbitRef.current.target.lerpVectors(tween.fromTarget, tween.toTarget, e);
         if (t >= 1) tweenRef.current = null;
