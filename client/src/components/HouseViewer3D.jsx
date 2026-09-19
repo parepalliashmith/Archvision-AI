@@ -108,7 +108,8 @@ function approxInitialCamera(model) {
   if (!model) return { fov: 45, near: 0.1, far: 500, position: [10, 8, 10] };
   const { width: W, depth: D, totalHeight: H } = model;
   const maxDim = Math.max(W, D);
-  const dist = Math.max(maxDim, H * 1.5) * 1.3 + 4;
+  const narrow = typeof window !== 'undefined' && window.innerWidth < 700;
+  const dist = (Math.max(maxDim, H * 1.5) * 1.3 + 4) * (narrow ? 1.45 : 1);
   return {
     fov: 45,
     near: 0.1,
@@ -147,10 +148,20 @@ function approxInitialCamera(model) {
 // deterministic regardless of mount order or how many viewers are on screen.
 let softShadowsClaimed = false;
 
-const HouseViewer3D = forwardRef(function HouseViewer3D({ layout, height = 420, onWalkthroughExit, autoRotate = false, skipIntro = false, enablePostFX = true }, ref) {
+// Phones and low-spec machines get a lighter render: no ambient-occlusion/bloom
+// post-processing, no soft-shadow filtering, a smaller shadow map, capped pixel
+// density and no HDRI download. A touch-primary pointer (phones/tablets), few CPU
+// cores or little device memory are the signals — evaluated once at load.
+const IS_LOW_POWER_DEVICE = typeof window !== 'undefined' && (
+  window.matchMedia?.('(pointer: coarse)').matches ||
+  (navigator.hardwareConcurrency && navigator.hardwareConcurrency <= 4) ||
+  (navigator.deviceMemory && navigator.deviceMemory <= 4)
+);
+
+const HouseViewer3D = forwardRef(function HouseViewer3D({ layout, height = 420, onWalkthroughExit, autoRotate = false, skipIntro = false, enablePostFX = true, lite = IS_LOW_POWER_DEVICE }, ref) {
   const ownsSoftShadowsRef = useRef(null);
   if (ownsSoftShadowsRef.current === null) {
-    ownsSoftShadowsRef.current = !softShadowsClaimed;
+    ownsSoftShadowsRef.current = !lite && !softShadowsClaimed;
     if (ownsSoftShadowsRef.current) softShadowsClaimed = true;
   }
   const [roofVisible, setRoofVisibleState] = useState(true);
@@ -393,6 +404,7 @@ const HouseViewer3D = forwardRef(function HouseViewer3D({ layout, height = 420, 
     <div style={{ width: '100%', height, borderRadius: 10, overflow: 'hidden', background: '#dfe9f0' }}>
       <Canvas
         shadows
+        dpr={lite ? [1, 1.5] : [1, 2]}
         camera={initialCamera}
         resize={{ polyfill: PollingResizeObserver }}
         onCreated={({ gl, camera }) => {
@@ -431,8 +443,8 @@ const HouseViewer3D = forwardRef(function HouseViewer3D({ layout, height = 420, 
           intensity={lp.sunIntensity}
           color={lp.sunColor}
           position={sunPosition}
-          shadow-mapSize-width={2048}
-          shadow-mapSize-height={2048}
+          shadow-mapSize-width={lite ? 1024 : 2048}
+          shadow-mapSize-height={lite ? 1024 : 2048}
           shadow-camera-left={-shadowExtent}
           shadow-camera-right={shadowExtent}
           shadow-camera-top={shadowExtent}
@@ -452,7 +464,7 @@ const HouseViewer3D = forwardRef(function HouseViewer3D({ layout, height = 420, 
             background={false} keeps this HDRI reflection-only: the visible
             sky stays the <Sky> shader above, which already drives the day/
             sunset/night look. */}
-        <Environment preset={HDRI_PRESETS[lightingMode] || HDRI_PRESETS.day} background={false} />
+        {!lite && <Environment preset={HDRI_PRESETS[lightingMode] || HDRI_PRESETS.day} background={false} />}
 
         {model && (
           <HouseScene
@@ -495,7 +507,7 @@ const HouseViewer3D = forwardRef(function HouseViewer3D({ layout, height = 420, 
             EffectComposer otherwise bypasses. captureRenders()' toDataURL
             still reads the composer's own final output on this same canvas,
             so render capture keeps working unchanged. */}
-        {enablePostFX && (
+        {enablePostFX && !lite && (
           <EffectComposer multisampling={4} enableNormalPass={false}>
             <N8AO aoRadius={aoRadius} intensity={2.5} quality="performance" halfRes distanceFalloff={1} />
             <Bloom mipmapBlur luminanceThreshold={0.82} luminanceSmoothing={0.2} intensity={0.6} />

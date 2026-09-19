@@ -117,7 +117,10 @@ const SceneController = forwardRef(function SceneController({ groupRef, model, o
   function computePose(preset) {
     const { size, center } = bounds();
     const maxDim = Math.max(size.x, size.z);
-    const dist = Math.max(maxDim, size.y * 1.5) * 1.3 + 4;
+    // Back off when the viewer is narrow (phones): the vertical FOV is fixed, so a
+    // near-square or portrait canvas sees far less horizontally and crops the house.
+    const fit = Math.min(2, Math.max(1, 1.6 / (camera.aspect || 1.6)));
+    const dist = (Math.max(maxDim, size.y * 1.5) * 1.3 + 4) * fit;
     const eyeY = size.y * 0.45;
     const targetY = size.y * 0.4;
 

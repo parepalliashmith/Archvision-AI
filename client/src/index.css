@@ -729,6 +729,7 @@ body::after {
   .main { padding: 14px; }
   .page-header { flex-direction: column; align-items: flex-start; gap: 8px; margin-bottom: 16px; }
   .page-header h1 { font-size: 1.25rem; }
+  .page-header-badge { white-space: normal; border-radius: 14px; max-width: 100%; }
   .hero-actions, .feedback-row { flex-direction: column; align-items: stretch; }
   .hero-actions .btn, .feedback-row > .btn { width: 100%; }
   .version-nav { margin-left: 0; width: 100%; justify-content: space-between; }
