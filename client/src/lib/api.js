@@ -188,3 +188,12 @@ export function saveBuilderProfile(profile) {
 export function listBuilders() {
   return fetch(`${API_BASE}/api/builders`).then(asJson);
 }
+
+// Edit the registered phone number on the signed-in account.
+export function savePhone(phone) {
+  return fetch(`${API_BASE}/api/auth/phone`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...authHeaders() },
+    body: JSON.stringify({ phone }),
+  }).then(asJson);
+}

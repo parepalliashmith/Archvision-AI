@@ -9,15 +9,15 @@ import { SPECIALIZATIONS, SERVICE_LOCATIONS } from '../data/builders.js';
 // BuilderProfile assume a real priceRange/specializations/serviceLocations
 // exist, so leaving these optional would mean those components crash later
 // on a half-filled real-builder record.
-export default function BuilderProfileSetup({ onDone }) {
-  const [name, setName] = useState('');
+export default function BuilderProfileSetup({ onDone, initial }) {
+  const [name, setName] = useState(initial?.name || '');
   const [phone, setPhone] = useState(getAccount()?.phone || '');
-  const [specializations, setSpecializations] = useState([]);
-  const [serviceLocations, setServiceLocations] = useState([]);
-  const [about, setAbout] = useState('');
-  const [priceMin, setPriceMin] = useState('');
-  const [priceMax, setPriceMax] = useState('');
-  const [yearsExperience, setYearsExperience] = useState('');
+  const [specializations, setSpecializations] = useState(initial?.specializations || []);
+  const [serviceLocations, setServiceLocations] = useState(initial?.serviceLocations || []);
+  const [about, setAbout] = useState(initial?.about || '');
+  const [priceMin, setPriceMin] = useState(initial?.priceRange?.[0] ?? '');
+  const [priceMax, setPriceMax] = useState(initial?.priceRange?.[1] ?? '');
+  const [yearsExperience, setYearsExperience] = useState(initial?.yearsExperience ?? '');
   const [state, setState] = useState('idle'); // idle | sending | error
   const [error, setError] = useState('');
 
