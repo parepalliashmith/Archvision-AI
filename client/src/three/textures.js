@@ -181,8 +181,12 @@ export function getMarbleTexture() {
 
 // Raw (unscaled, repeat=1) sets — callers pair these with makeTiledBoxGeometry,
 // which bakes the repeat into the geometry's UVs instead of the texture.
+// A plain painted surface — no photo texture at all, just the tint colour (a clean white render).
+const SMOOTH_SET = { map: null, normalMap: null, roughnessMap: null };
+
 export function getRawSet(kind) {
   switch (kind) {
+    case 'smooth': return SMOOTH_SET;
     case 'brick': return loadSet('brick', 'brick');
     case 'stone': return loadSet('stone', 'stone');
     case 'plaster': return loadSet('plaster', 'plaster');

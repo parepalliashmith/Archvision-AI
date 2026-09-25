@@ -58,6 +58,10 @@ const STYLE_PRESETS = {
   mediterranean: { roofType: 'hip', wallColor: '#f2ddb0', roofColor: '#b5502e', accentColor: '#2b2b2b', roofHeightScale: 1.1, wallTexture: 'stucco', trimColor: '#f7efe0', shutters: true, chimney: true },
   colonial: { roofType: 'hip', wallColor: '#f5f1e6', roofColor: '#3a3f47', accentColor: '#1f1f1f', wallTexture: 'brick', trimColor: '#faf7f0', shutters: true, chimney: true },
   industrial: { roofType: 'flat', wallColor: '#9a958c', roofColor: '#2b2b2b', accentColor: '#8a4a2f', windowScale: 1.3, wallTexture: 'concrete', trimColor: '#2b2b2b' },
+  // Contemporary Indian-villa elevation: white massing, timber-clad feature bay, vertical
+  // timber fins, a cantilevered car-porch slab with downlights. `facade` switches on
+  // buildModernFacade below (only when the design has an entrance door to hang it on).
+  'modern elevation': { roofType: 'flat', wallColor: '#f4f3ef', roofColor: '#e4e2dc', accentColor: '#2a2d33', wallHeightScale: 1.12, windowScale: 1.5, wallTexture: 'smooth', trimColor: '#f7f6f2', facade: true },
   scandinavian: { roofType: 'flat', wallColor: '#eae6da', roofColor: '#3d4147', accentColor: '#a67c52', windowScale: 1.2, wallTexture: 'stucco', trimColor: '#f0ece2' },
 };
 const DEFAULT_STYLE_PRESET = { roofType: 'hip', wallColor: WALL_COLOR_EXTERIOR, roofColor: '#a2543a', accentColor: '#8a6a52', wallTexture: 'stucco', trimColor: '#f1ede4' };
@@ -399,6 +403,150 @@ function buildEntrancePorch(door, room, yBase, dims, colors, wide, facadeSpan) {
   return { step, canopy, posts };
 }
 
+// The "Modern Elevation" front facade: a timber-slat feature bay, a bay of vertical
+// timber fins, and a cantilevered white car-porch slab with a timber soffit, slim
+// columns and warm downlights — all plain boxes, sized as fractions of the wall
+// height / wall thickness / facade length so it works in metres or feet, and fully
+// deterministic (no Math.random). Everything is computed in a small local frame
+// (a = along the facade, o = outward from the wall, y = up) and converted to world
+// axes with pos()/size(), so it works whichever wall the entrance door is on.
+function buildModernFacade(door, room, footprint, floorToFloor, totalHeight, dims, preset, floorCount = 1) {
+  const dir = OUTWARD[door.wall];
+  if (!dir || !room) return null;
+  const horizontal = door.wall === 'north' || door.wall === 'south';
+  const wallCoord = dir.wallCoord(room);
+  const aMin = horizontal ? footprint.x : footprint.y;
+  const aLen = horizontal ? footprint.width : footprint.depth;
+  const aMax = aMin + aLen;
+  const doorA = (horizontal ? room.x : room.y) + door.offset + door.width / 2;
+  const t = dims.wallThicknessExterior;
+  const H = dims.wallHeight;
+  const outer = t * 0.5; // outer face of the exterior wall, measured outward from its centre line
+  const pos = (a, o, y) => (horizontal ? [a, y, wallCoord + dir.sign * o] : [wallCoord + dir.sign * o, y, a]);
+  const size = (sa, so, sy) => (horizontal ? [sa, sy, so] : [so, sy, sa]);
+  const TIMBER = ['#b98455', '#a9744a', '#c48f5f'];
+
+  // Car porch over the front door.
+  const porchW = Math.min(aLen * 0.36, Math.max(door.width * 3.4, aLen * 0.28));
+  const porchD = H * 0.95;
+  const st = dims.slabThickness * 2.4;
+  const slabTop = floorToFloor;
+  const soffitH = st * 0.16;
+  const soffitY = slabTop - st - soffitH / 2;
+  const porch = {
+    slab: { size: size(porchW, porchD, st), position: pos(doorA, outer + porchD / 2, slabTop - st / 2), color: preset.trimColor },
+    soffit: { size: size(porchW * 0.94, porchD * 0.94, soffitH), position: pos(doorA, outer + porchD / 2, soffitY), color: TIMBER[1] },
+    columns: [-1, 1].map((sgn, i) => ({
+      key: 'facade-col-' + i,
+      size: size(H * 0.045, H * 0.045, slabTop - st),
+      position: pos(doorA + sgn * (porchW / 2 - H * 0.06), outer + porchD - H * 0.06, (slabTop - st) / 2),
+      color: preset.accentColor,
+    })),
+  };
+
+  // Downlights in a grid on the soffit, plus an LED strip along its outer edge.
+  const lightY = soffitY - soffitH / 2 - 0.002;
+  const lights = [];
+  for (let i = 0; i < 3; i++) {
+    for (let j = 0; j < 2; j++) {
+      lights.push({ key: `facade-dl-${i}-${j}`, position: pos(doorA + (i - 1) * porchW * 0.3, outer + porchD * (0.28 + 0.4 * j), lightY), radius: H * 0.028 });
+    }
+  }
+  const strips = [
+    { key: 'facade-strip-porch', size: size(porchW * 0.9, H * 0.014, H * 0.014), position: pos(doorA, outer + porchD - H * 0.025, lightY) },
+  ];
+
+  // Bays either side of the door: timber slats on the roomier side, fins on the other.
+  const zoneMin = doorA - porchW / 2 - aMin;
+  const zoneMax = aMax - (doorA + porchW / 2);
+  const timberSide = zoneMin >= zoneMax ? -1 : 1;
+  const gap = t * 2;
+  const timberW = Math.min(aLen * 0.26, Math.max(zoneMin, zoneMax) - gap);
+  const finW = Math.min(aLen * 0.16, Math.min(zoneMin, zoneMax) - gap);
+  const bayCentre = (w, sgn) => (sgn < 0 ? aMin + w / 2 : aMax - w / 2);
+
+  let timber = null;
+  if (timberW > H * 1.2) {
+    const c = bayCentre(timberW, timberSide);
+    const pitch = H * 0.09;
+    const n = Math.floor(totalHeight / pitch);
+    const backDepth = t * 0.3;
+    const slatDepth = t * 0.55;
+    timber = {
+      backing: { size: size(timberW, backDepth, totalHeight), position: pos(c, outer + backDepth / 2, totalHeight / 2), color: '#2a2118' },
+      slats: Array.from({ length: n }, (_, i) => ({
+        key: 'facade-slat-' + i,
+        size: size(timberW * 0.985, slatDepth, pitch * 0.62),
+        position: pos(c, outer + backDepth + slatDepth / 2, (i + 0.5) * pitch),
+        color: TIMBER[i % 3],
+      })),
+    };
+    strips.push({ key: 'facade-strip-timber', size: size(timberW * 0.9, H * 0.014, H * 0.014), position: pos(c, outer + backDepth + slatDepth + H * 0.01, H * 0.03) });
+  }
+
+  let fins = [];
+  if (finW > H * 0.6) {
+    const c = bayCentre(finW, -timberSide);
+    const count = Math.max(3, Math.round(finW / (H * 0.12)));
+    const finA = H * 0.05;
+    const finDepth = t * 2.2;
+    fins = Array.from({ length: count }, (_, i) => ({
+      key: 'facade-fin-' + i,
+      size: size(finA, finDepth, totalHeight * 0.985),
+      position: pos(c - finW / 2 + finA / 2 + (i * (finW - finA)) / (count - 1), outer + finDepth / 2, (totalHeight * 0.985) / 2),
+      color: TIMBER[(i + 1) % 3],
+    }));
+  }
+
+  // Full-height glazing on every storey in the widest remaining white zone (between the
+  // bays and the porch): dark-framed panels that glow warm at dusk, like a lit interior.
+  const timberEdge = timber ? (timberSide < 0 ? aMin + timberW : aMax - timberW) : null;
+  const finEdge = fins.length ? (timberSide < 0 ? aMax - finW : aMin + finW) : null;
+  const porchLo = doorA - porchW / 2, porchHi = doorA + porchW / 2;
+  // Zone on the timber side (between timber edge and porch) vs the fin side (between porch and fin edge).
+  const zA = timberSide < 0
+    ? [timber ? timberEdge + gap : aMin + gap, porchLo - gap]
+    : [porchHi + gap, timber ? timberEdge - gap : aMax - gap];
+  const zB = timberSide < 0
+    ? [porchHi + gap, finEdge != null ? finEdge - gap : aMax - gap]
+    : [finEdge != null ? finEdge + gap : aMin + gap, porchLo - gap];
+  const zone = zA[1] - zA[0] >= zB[1] - zB[0] ? zA : zB;
+  const glazing = [];
+  const zoneW = zone[1] - zone[0];
+  if (zoneW > H * 0.5) {
+    const gw = Math.min(zoneW * 0.88, H * 5);
+    const gc = (zone[0] + zone[1]) / 2;
+    const gh = H * 0.8;
+    const fb = H * 0.035; // frame bar thickness
+    const go = outer + t * 0.4;
+    for (let level = 0; level < floorCount; level++) {
+      const y0 = level * floorToFloor + dims.slabThickness + H * 0.06;
+      const yc = y0 + gh / 2;
+      const bars = [
+        { size: size(gw + fb * 2, fb * 1.4, fb), position: pos(gc, go, y0 + gh + fb / 2) },
+        { size: size(gw + fb * 2, fb * 1.4, fb), position: pos(gc, go, y0 - fb / 2) },
+        { size: size(fb, fb * 1.4, gh), position: pos(gc - gw / 2 - fb / 2, go, yc) },
+        { size: size(fb, fb * 1.4, gh), position: pos(gc + gw / 2 + fb / 2, go, yc) },
+      ];
+      const mullions = Math.max(1, Math.round(gw / (H * 1.1)) - 1);
+      for (let m = 1; m <= mullions; m++) {
+        bars.push({ size: size(fb * 0.7, fb * 1.2, gh), position: pos(gc - gw / 2 + (gw * m) / (mullions + 1), go, yc) });
+      }
+      glazing.push({ key: 'facade-glass-' + level, glass: { size: size(gw, fb * 0.5, gh), position: pos(gc, go - fb * 0.3, yc) }, bars });
+    }
+  }
+
+  // Shrubs along the base of the facade, clear of the porch, on the plot side of the wall.
+  const plants = [];
+  const pr = H * 0.17;
+  const po = outer + t * 2.2 + pr;
+  [aMin + gap + pr, aMin + aLen * 0.2, aMax - aLen * 0.2, aMax - gap - pr, aMin + aLen * 0.5]
+    .filter((a) => a < porchLo - pr || a > porchHi + pr)
+    .forEach((a, i) => plants.push({ key: 'facade-shrub-' + i, radius: pr * (0.85 + (i % 3) * 0.2), position: pos(a, po, pr * 0.7) }));
+
+  return { timber, fins, porch, lights, strips, glazing, plants };
+}
+
 // A cylindrical corner tower with a conical cap, projecting from the entrance
 // corner and rising above the main roof ridge — the single most recognizable
 // "villa" massing signature (see the SketchUp reference this feature was
@@ -699,8 +847,8 @@ function buildParkingModel(parking, dims) {
 // upgrade, same reasoning as the entrance porch. The gate lines up with the
 // parking pad's own width when there is one (so the driveway actually leads
 // through it), or sits centered on the plot's frontage otherwise.
-function buildBoundaryWallModel(plotWidth, plotDepth, gateCenter, gateWidth, dims) {
-  const wallHeight = dims.wallHeight * 0.42;
+function buildBoundaryWallModel(plotWidth, plotDepth, gateCenter, gateWidth, dims, low = false) {
+  const wallHeight = dims.wallHeight * (low ? 0.27 : 0.42);
   const wallThickness = dims.wallThicknessExterior * 0.65;
   const pillarSize = wallThickness * 2.4;
   const pillarHeight = wallHeight * 1.3;
@@ -924,7 +1072,7 @@ export function buildHouseModel(rawLayout) {
   // actual geometry construction lives in roofGeometry.js since it needs THREE.
   const roofOverhang = dims.wallThicknessExterior * 2;
   const roof = preset.roofType === 'flat'
-    ? { type: 'flat', color: preset.roofColor, ...buildFlatRoofModel(buildingFootprint, totalHeight, roofOverhang, dims) }
+    ? { type: 'flat', color: preset.roofColor, finish: preset.wallTexture === 'smooth' ? 'smooth' : 'concrete', ...buildFlatRoofModel(buildingFootprint, totalHeight, roofOverhang, dims) }
     : {
         type: 'hip', color: preset.roofColor,
         center: [bcx, totalHeight, bcz], width: buildingFootprint.width, depth: buildingFootprint.depth,
@@ -950,13 +1098,16 @@ export function buildHouseModel(rawLayout) {
   const entrancePorch = entranceDoor && entranceRoom
     ? buildEntrancePorch(entranceDoor, entranceRoom, 0, dims, preset, isVillaStyle, entranceFacadeSpan)
     : null;
+  const facade = preset.facade && entranceDoor && entranceRoom
+    ? buildModernFacade(entranceDoor, entranceRoom, buildingFootprint, floorToFloor, totalHeight, dims, preset, floorCount)
+    : null;
   const entranceTower = isVillaStyle && entranceDoor && entranceRoom
     ? buildEntranceTower(entranceDoor, entranceRoom, totalHeight, dims, preset)
     : null;
   // Balconies need SOME facade to project from — reuse the entrance wall when
   // known, otherwise there's no principled "front" to pick, so quietly skip
   // (same "render nothing rather than guess" rule as the porch above).
-  const balconies = entranceDoor ? buildBalconies(floors, entranceDoor.wall, dims) : [];
+  const balconies = entranceDoor && !facade ? buildBalconies(floors, entranceDoor.wall, dims) : [];
   // Same door, expressed as a wall-plane opening (position along the wall +
   // width) instead of a 3D porch — what elevations.js needs to draw the front
   // door as a rectangle on the correct facade.
@@ -985,7 +1136,8 @@ export function buildHouseModel(rawLayout) {
         W, D,
         layout.parking ? layout.parking.x + layout.parking.width / 2 : W / 2,
         layout.parking ? layout.parking.width + 4 : Math.min(14, W * 0.4),
-        dims
+        dims,
+        !!facade
       )
     : null;
 
@@ -1000,7 +1152,7 @@ export function buildHouseModel(rawLayout) {
   // light source — kept cheap) on the entrance porch posts and the gate
   // pillars, the classic "arriving at dusk" luxury-listing touch.
   const lanternSpots = [];
-  if (entrancePorch) {
+  if (entrancePorch && !facade) {
     entrancePorch.posts.forEach((p) => lanternSpots.push([p.position[0], p.position[1] + p.size[1] / 2 + 0.15, p.position[2]]));
   }
   if (boundaryWall) {
@@ -1029,7 +1181,9 @@ export function buildHouseModel(rawLayout) {
     parking: parkingModel,
     boundaryWall,
     lanterns,
-    entrancePorch,
+    // With a modern facade the cantilevered car-porch slab replaces the small awning + posts.
+    entrancePorch: facade && entrancePorch ? { ...entrancePorch, canopy: null, posts: [] } : entrancePorch,
+    facade,
     entranceTower,
     balconies,
     entranceWall: entranceDoor?.wall || null,

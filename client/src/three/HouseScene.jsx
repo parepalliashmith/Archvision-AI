@@ -3,6 +3,7 @@ import Label from './Label.jsx';
 import RoomWalls, { TexturedBox, ExteriorBlock } from './Walls.jsx';
 import Furniture from './Furniture.jsx';
 import Roof from './Roof.jsx';
+import Facade from './Facade.jsx';
 import Landscaping, { Bush } from './Landscaping.jsx';
 import { getGrassTexture, getGrassTextureForSize, getPavingTexture, getWoodFloorTexture, getWoodFloorTextureForSize, getTileFloorTextureForSize } from './textures.js';
 
@@ -28,7 +29,7 @@ const TILE_FLOOR_TYPES = new Set(['kitchen', 'bathroom', 'utility']);
 // the structure rises" beat, so furniture and site features are rendered in their own
 // loops here (a second pass over the same model data) rather than inline per-room,
 // purely so they can live under those two ref'd wrapper groups.
-export default function HouseScene({ groupRef, model, roofVisible, wireframe, floorFilter, nightMode, furnitureGroupRef, landscapeGroupRef, lite = false }) {
+export default function HouseScene({ groupRef, model, roofVisible, wireframe, floorFilter, nightMode, furnitureGroupRef, landscapeGroupRef, lite = false, showLabels = true }) {
   const topLevel = model.floorCount - 1;
   // Procedural, canvas-generated textures — see textures.js. The ground plane's
   // size varies enormously between designs (3x the plot's own largest
@@ -127,7 +128,7 @@ export default function HouseScene({ groupRef, model, roofVisible, wireframe, fl
                     lite={lite}
                     nightMode={nightMode}
                   />
-                  <Label text={r.label.text} position={r.label.position} />
+                  {showLabels && <Label text={r.label.text} position={r.label.position} />}
                 </group>
               );
             })}
@@ -157,7 +158,7 @@ export default function HouseScene({ groupRef, model, roofVisible, wireframe, fl
                 <meshStandardMaterial color={model.accentColor} roughness={0.5} metalness={0.3} wireframe={wireframe} />
               </mesh>
             ))}
-            <Label text={stair.label.text} position={stair.label.position} />
+            {showLabels && <Label text={stair.label.text} position={stair.label.position} />}
           </group>
         ))}
 
@@ -206,16 +207,25 @@ export default function HouseScene({ groupRef, model, roofVisible, wireframe, fl
         {model.entrancePorch && (
           <group visible={floorFilter === null || floorFilter === 0}>
             <TexturedBox size={model.entrancePorch.step.size} position={model.entrancePorch.step.position} kind="stone" color="#d6d0c4" tile={model.entrancePorch.step.size[1] * 4} wireframe={wireframe} />
-            <mesh position={model.entrancePorch.canopy.position} castShadow>
-              <boxGeometry args={model.entrancePorch.canopy.size} />
-              <meshStandardMaterial color={model.entrancePorch.canopy.color} roughness={0.7} wireframe={wireframe} />
-            </mesh>
+            {model.entrancePorch.canopy && (
+              <mesh position={model.entrancePorch.canopy.position} castShadow>
+                <boxGeometry args={model.entrancePorch.canopy.size} />
+                <meshStandardMaterial color={model.entrancePorch.canopy.color} roughness={0.7} wireframe={wireframe} />
+              </mesh>
+            )}
             {model.entrancePorch.posts.map((post) => (
               <mesh key={post.key} position={post.position} castShadow>
                 <boxGeometry args={post.size} />
                 <meshStandardMaterial color={post.color} roughness={0.8} wireframe={wireframe} />
               </mesh>
             ))}
+          </group>
+        )}
+
+        {/* Modern Elevation facade: timber bay, fins, cantilevered car-porch slab + downlights. */}
+        {model.facade && (
+          <group visible={floorFilter === null || floorFilter === 0}>
+            <Facade facade={model.facade} wireframe={wireframe} glow={nightMode ? 2.6 : 0.3} lite={lite} />
           </group>
         )}
 
@@ -292,19 +302,19 @@ export default function HouseScene({ groupRef, model, roofVisible, wireframe, fl
                 <boxGeometry args={model.parking.pad.size} />
                 <meshStandardMaterial map={paving.map} normalMap={paving.normalMap} roughnessMap={paving.roughnessMap} roughness={1} wireframe={wireframe} />
               </mesh>
-              {model.parking.canopy.beams.map((beam) => (
+              {!model.facade && model.parking.canopy.beams.map((beam) => (
                 <mesh key={beam.key} position={beam.position} castShadow>
                   <boxGeometry args={beam.size} />
                   <meshStandardMaterial color={model.accentColor} roughness={0.7} wireframe={wireframe} />
                 </mesh>
               ))}
-              {model.parking.canopy.crossBeams.map((beam) => (
+              {!model.facade && model.parking.canopy.crossBeams.map((beam) => (
                 <mesh key={beam.key} position={beam.position} castShadow>
                   <boxGeometry args={beam.size} />
                   <meshStandardMaterial color={model.accentColor} roughness={0.7} wireframe={wireframe} />
                 </mesh>
               ))}
-              {model.parking.posts.map((post) => (
+              {!model.facade && model.parking.posts.map((post) => (
                 <mesh key={post.key} position={post.position} castShadow>
                   <boxGeometry args={post.size} />
                   <meshStandardMaterial color={model.accentColor} roughness={0.8} wireframe={wireframe} />
@@ -347,9 +357,9 @@ export default function HouseScene({ groupRef, model, roofVisible, wireframe, fl
               {model.boundaryWall.gate && [-1, 1].map((sign) => {
                 const g = model.boundaryWall.gate;
                 const leafW = g.width / 2 - g.thickness * 3;
-                const bars = Math.max(3, Math.round(leafW / (g.height * 0.16)));
+                const bars = Math.max(3, Math.round(leafW / (g.height * (model.facade ? 0.07 : 0.16))));
                 return (
-                  <group key={sign} position={[g.center + sign * (g.width / 2 - g.thickness * 2), 0, g.z]} rotation={[0, sign * 1.15, 0]}>
+                  <group key={sign} position={[g.center + sign * (g.width / 2 - g.thickness * 2), 0, g.z]} rotation={[0, model.facade ? 0 : sign * 1.15, 0]}>
                     <group position={[-sign * leafW / 2, g.height / 2, 0]}>
                       <mesh position={[0, g.height / 2 - g.thickness, 0]} castShadow>
                         <boxGeometry args={[leafW, g.thickness * 1.5, g.thickness]} />

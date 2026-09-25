@@ -122,7 +122,7 @@ export default function RoomWalls({
   // style's wall colour (a "painted plaster" look); brick and concrete are real
   // colours and stay untinted.
   const extSet = useMemo(() => getRawSet(wallTexture), [wallTexture]);
-  const extColor = wallTexture === 'stucco' ? wallColorExterior || WALL_COLOR_EXTERIOR : '#ffffff';
+  const extColor = wallTexture === 'stucco' || wallTexture === 'smooth' ? wallColorExterior || WALL_COLOR_EXTERIOR : '#ffffff';
   const plaster = useMemo(() => getRawSet('plaster'), []);
   const stone = useMemo(() => (groundFloor ? getRawSet('stone') : null), [groundFloor]);
   const fabric = useMemo(() => getFabricTexture(), []);
@@ -142,7 +142,7 @@ export default function RoomWalls({
               plaster={plaster}
               wireframe={wireframe}
             />
-            {seg.exterior && groundFloor && !isLintel && <Plinth seg={seg} stone={stone} wireframe={wireframe} />}
+            {seg.exterior && groundFloor && !isLintel && wallTexture !== 'smooth' && <Plinth seg={seg} stone={stone} wireframe={wireframe} />}
             {!seg.exterior && !isLintel && !lite && (
               // Skirting board along the foot of interior walls.
               <mesh
@@ -317,7 +317,7 @@ export function ExteriorBlock({ seg, wallTexture = 'stucco', wallColorExterior, 
       size={seg.size}
       position={seg.position}
       kind={wallTexture}
-      color={wallTexture === 'stucco' ? wallColorExterior || WALL_COLOR_EXTERIOR : '#ffffff'}
+      color={wallTexture === 'stucco' || wallTexture === 'smooth' ? wallColorExterior || WALL_COLOR_EXTERIOR : '#ffffff'}
       tile={seg.size[1] * (WALL_TILE_FACTOR[wallTexture] || 1.25)}
       seed={hashSeed(seg.key)}
       wireframe={wireframe}

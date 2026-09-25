@@ -12,7 +12,7 @@ import { floorCountOf } from '../lib/layout.js';
 import { buildHouseModel } from '../three/houseModel.js';
 import { buildElevations } from '../three/elevations.js';
 
-const STYLE_OPTIONS = ['Modern', 'Traditional', 'Contemporary', 'Farmhouse', 'Compact urban', 'Minimalist', 'Mediterranean', 'Colonial', 'Industrial', 'Scandinavian'];
+const STYLE_OPTIONS = ['Modern', 'Traditional', 'Contemporary', 'Farmhouse', 'Compact urban', 'Minimalist', 'Mediterranean', 'Colonial', 'Industrial', 'Scandinavian', 'Modern Elevation'];
 const KITCHEN_OPTIONS = ['Open-plan', 'Closed / separate', 'Modular'];
 const LIVING_OPTIONS = ['Compact', 'Medium', 'Large / open-plan'];
 

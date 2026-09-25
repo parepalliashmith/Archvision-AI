@@ -23,7 +23,7 @@ function FlatRoof({ roof, visible, trimColor, wireframe }) {
       <TexturedBox
         size={roof.slab.size}
         position={roof.slab.position}
-        kind="concrete"
+        kind={roof.finish || 'concrete'}
         color={roof.color}
         tile={span / 3}
         wireframe={wireframe}

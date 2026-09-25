@@ -16,13 +16,15 @@ import { computeRoomPoses } from '../three/roomCamera.js';
 const LIGHTING_PRESETS = {
   day: { turbidity: 6, rayleigh: 1.2, mieCoefficient: 0.006, mieDirectionalG: 0.8, sunElevation: 0.55, hemi: 0.9, sunIntensity: 0.9, sunColor: '#ffffff', clearColor: '#dfe9f0', exposure: 1 },
   sunset: { turbidity: 10, rayleigh: 2.4, mieCoefficient: 0.012, mieDirectionalG: 0.85, sunElevation: 0.12, hemi: 0.55, sunIntensity: 0.75, sunColor: '#ff9c5c', clearColor: '#3a2a2c', exposure: 1.05 },
+  // Blue hour: deep-blue sky, low warm sun, lit windows/downlights (nightMode below is on for this too).
+  dusk: { turbidity: 3, rayleigh: 1.4, mieCoefficient: 0.003, mieDirectionalG: 0.7, sunElevation: 0.04, hemi: 0.85, sunIntensity: 0.55, sunColor: '#ffd4b0', clearColor: '#1d2b48', exposure: 1.2 },
   night: { turbidity: 2, rayleigh: 0.3, mieCoefficient: 0.001, mieDirectionalG: 0.7, sunElevation: -0.15, hemi: 0.16, sunIntensity: 0.1, sunColor: '#7d9bd6', clearColor: '#0a0e1a', exposure: 0.85 },
 };
 
 // Real Poly Haven HDRIs (drei's built-in preset list) chosen to match each
 // lighting mode's mood — 'sunset'/'night' are literal matches, 'park' is the
 // closest bright-outdoor-daylight preset drei ships for 'day'.
-const HDRI_PRESETS = { day: 'park', sunset: 'sunset', night: 'night' };
+const HDRI_PRESETS = { day: 'park', sunset: 'sunset', dusk: 'sunset', night: 'night' };
 
 // "Generate House Tour Video" script — a fixed sequence of the same tweened
 // camera presets a user could click by hand, played back-to-back and
@@ -158,7 +160,7 @@ const IS_LOW_POWER_DEVICE = typeof window !== 'undefined' && (
   (navigator.deviceMemory && navigator.deviceMemory <= 4)
 );
 
-const HouseViewer3D = forwardRef(function HouseViewer3D({ layout, height = 420, onWalkthroughExit, autoRotate = false, skipIntro = false, enablePostFX = true, lite = IS_LOW_POWER_DEVICE }, ref) {
+const HouseViewer3D = forwardRef(function HouseViewer3D({ layout, height = 420, onWalkthroughExit, autoRotate = false, skipIntro = false, enablePostFX = true, lite = IS_LOW_POWER_DEVICE, initialLighting = 'day', showLabels = true, frontShot = false }, ref) {
   const ownsSoftShadowsRef = useRef(null);
   if (ownsSoftShadowsRef.current === null) {
     ownsSoftShadowsRef.current = !lite && !softShadowsClaimed;
@@ -167,7 +169,7 @@ const HouseViewer3D = forwardRef(function HouseViewer3D({ layout, height = 420, 
   const [roofVisible, setRoofVisibleState] = useState(true);
   const [wireframe, setWireframeState] = useState(false);
   const [floorFilter, setFloorFilterState] = useState(null);
-  const [lightingMode, setLightingModeState] = useState('day');
+  const [lightingMode, setLightingModeState] = useState(initialLighting);
 
   const groupRef = useRef(null);
   const furnitureGroupRef = useRef(null);
@@ -190,6 +192,38 @@ const HouseViewer3D = forwardRef(function HouseViewer3D({ layout, height = 420, 
   // a fresh object reference each time would silently reset the camera whenever any
   // unrelated state (wireframe, roof toggle, floor filter) changes.
   const initialCamera = useMemo(() => approxInitialCamera(model), [model]);
+
+  // A low, three-quarter "listing photo" pose looking at the entrance facade (used by the
+  // home-page hero): outward from the entrance wall, slightly to one side, at about
+  // half the building's height. Falls back to the default framing if there is no entrance.
+  useEffect(() => {
+    if (!frontShot || !model?.entranceWall) return undefined;
+    const dir = { north: [0, -1], south: [0, 1], west: [-1, 0], east: [1, 0] }[model.entranceWall];
+    if (!dir) return undefined;
+    const fp = model.buildingFootprint;
+    const cx = fp.x + fp.width / 2, cz = fp.y + fp.depth / 2;
+    const lateral = [-dir[1], dir[0]];
+    const span = dir[0] === 0 ? fp.width : fp.depth; // the facade's length
+    const half = dir[0] === 0 ? fp.depth / 2 : fp.width / 2; // centre -> front face
+    const narrow = typeof window !== 'undefined' && window.innerWidth < 700;
+    const dist = span * (narrow ? 1.7 : 1.5) + 8;
+    const fx = cx + dir[0] * half, fz = cz + dir[1] * half; // middle of the front face
+    const pose = {
+      position: [fx + dir[0] * dist * 0.9 + lateral[0] * dist * 0.3, model.totalHeight * 0.5, fz + dir[1] * dist * 0.9 + lateral[1] * dist * 0.3],
+      target: [cx, model.totalHeight * 0.52, cz],
+    };
+    // The canvas/controls mount asynchronously (slowly on weak GPUs) — poll until the pose
+    // is accepted, then re-apply once so it wins over any later framing.
+    let done = false;
+    const poll = setInterval(() => {
+      if (sceneControllerRef.current?.setCameraPose(pose, { duration: 0 })) {
+        if (done) { clearInterval(poll); return; }
+        done = true;
+      }
+    }, 200);
+    const stop = setTimeout(() => clearInterval(poll), 20000);
+    return () => { clearInterval(poll); clearTimeout(stop); };
+  }, [model, frontShot]);
 
   const handleWalkthroughChange = useCallback((active) => {
     if (!active) exitCbRef.current?.();
@@ -391,8 +425,12 @@ const HouseViewer3D = forwardRef(function HouseViewer3D({ layout, height = 420, 
   // same X/Z direction (so shadows always fall the same way) while the sun
   // arcs up/down for the different times of day.
   const sunY = Math.max(maxDim * 0.18, (maxDim * 1.2 + (model?.totalHeight ?? 0)) * (lp.sunElevation / LIGHTING_PRESETS.day.sunElevation));
+  // Dusk (the front-facing hero shot) puts the low sun on the entrance side so the facade is lit.
+  const entranceDir = model?.entranceWall ? { north: [0, -1], south: [0, 1], west: [-1, 0], east: [1, 0] }[model.entranceWall] : null;
   const sunPosition = model
-    ? [model.width / 2 + maxDim, sunY, model.depth / 2 + maxDim * 0.5]
+    ? (lightingMode === 'dusk' && entranceDir
+      ? [model.width / 2 + entranceDir[0] * maxDim - entranceDir[1] * maxDim * 0.45, sunY, model.depth / 2 + entranceDir[1] * maxDim + entranceDir[0] * maxDim * 0.45]
+      : [model.width / 2 + maxDim, sunY, model.depth / 2 + maxDim * 0.5])
     : [10, sunY, 10];
   const shadowExtent = maxDim * 0.75 + 2;
   // AO sample radius scales with house size (not a fixed magic number) — a
@@ -437,6 +475,9 @@ const HouseViewer3D = forwardRef(function HouseViewer3D({ layout, height = 420, 
             deep-blue dome on its own, no separate starfield needed. */}
         <Sky sunPosition={sunPosition} turbidity={lp.turbidity} rayleigh={lp.rayleigh} mieCoefficient={lp.mieCoefficient} mieDirectionalG={lp.mieDirectionalG} />
 
+        {/* Dusk hero: fade the far ground into the horizon haze so the plot does not end in a hard edge. */}
+        {lightingMode === 'dusk' && <fog attach="fog" args={['#a3b1c9', 90, 230]} />}
+
         <hemisphereLight args={[0xffffff, 0x8a8a7a, lp.hemi]} />
         <directionalLight
           castShadow
@@ -473,7 +514,8 @@ const HouseViewer3D = forwardRef(function HouseViewer3D({ layout, height = 420, 
             roofVisible={roofVisible}
             wireframe={wireframe}
             floorFilter={floorFilter}
-            nightMode={lightingMode === 'night'}
+            nightMode={lightingMode === 'night' || lightingMode === 'dusk'}
+            showLabels={showLabels}
             furnitureGroupRef={furnitureGroupRef}
             landscapeGroupRef={landscapeGroupRef}
             lite={lite}

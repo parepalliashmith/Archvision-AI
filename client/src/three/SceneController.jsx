@@ -197,14 +197,14 @@ const SceneController = forwardRef(function SceneController({ groupRef, model, o
   // duration in ms; 0 snaps instantly (used for the render-capture sequence,
   // which needs the pose settled before reading pixels, not mid-tween).
   const tweenTo = useCallback((pose, duration = 650, ease = 'out') => {
-    if (!groupRef.current || !orbitRef.current) return;
+    if (!groupRef.current || !orbitRef.current) return false;
     const controls = orbitRef.current;
     if (!duration) {
       camera.position.set(...pose.position);
       controls.target.set(...pose.target);
       controls.update();
       tweenRef.current = null;
-      return;
+      return true;
     }
     tweenRef.current = {
       fromPos: camera.position.clone(),
@@ -215,6 +215,7 @@ const SceneController = forwardRef(function SceneController({ groupRef, model, o
       duration,
       ease,
     };
+    return true;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [camera, groupRef]);
 
@@ -224,7 +225,7 @@ const SceneController = forwardRef(function SceneController({ groupRef, model, o
   }, [tweenTo]);
 
   const setCameraPose = useCallback((pose, { duration = 650, ease } = {}) => {
-    tweenTo(pose, duration, ease);
+    return tweenTo(pose, duration, ease);
   }, [tweenTo]);
 
   function ensurePointerLockControls() {
