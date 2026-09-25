@@ -677,6 +677,32 @@ app.delete('/api/designs/:id', requireAuth, async (req, res) => {
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
+// Normalizes a phone number to E.164 (+<country><number>): a bare 10-digit number
+// is assumed Indian (+91), and "0"/"91" prefixes are handled. Returns null if it
+// doesn't look like a real number — accounts only ever store the normalized form.
+function normalizePhone(raw) {
+  let v = String(raw || '').trim().replace(/[\s().-]/g, '');
+  if (!v) return null;
+  if (v.startsWith('00')) v = '+' + v.slice(2);
+  if (!v.startsWith('+')) {
+    if (/^0\d{10}$/.test(v)) v = v.slice(1);
+    if (/^\d{10}$/.test(v)) v = '+91' + v;
+    else if (/^91\d{10}$/.test(v)) v = '+' + v;
+    else return null;
+  }
+  return /^\+\d{10,15}$/.test(v) ? v : null;
+}
+
+// Where a builder's notifications go: a real signed-up builder's own inbox,
+// otherwise the single configured BUILDER_EMAIL used for the demo directory.
+async function builderInbox(builderAccountId) {
+  if (builderAccountId) {
+    const acc = await store.getAccountById(builderAccountId);
+    if (acc?.email) return acc.email;
+  }
+  return BUILDER_EMAIL;
+}
+
 // ---------------------------------------------------------------------------
 // Email-OTP login — the only auth this app has. No passwords, ever: an email
 // is verified by proving control of the inbox via a one-time code. Reuses
@@ -734,6 +760,14 @@ app.post('/api/auth/verify-otp', aiRateLimit, async (req, res) => {
   });
 });
 
+app.post('/api/auth/phone', requireAuth, async (req, res) => {
+  const phone = normalizePhone(req.body?.phone);
+  if (!phone) return res.status(400).json({ error: 'Enter a valid phone number (10 digits, or with country code).' });
+  const account = await store.updateAccountPhone(req.account.accountId, phone);
+  if (!account) return res.status(404).json({ error: 'Account not found.' });
+  res.json({ ok: true, account });
+});
+
 app.get('/api/auth/me', requireAuth, async (req, res) => {
   const account = await store.getAccountById(req.account.accountId);
   if (!account) return res.status(401).json({ error: 'Account no longer exists.' });
@@ -743,9 +777,14 @@ app.get('/api/auth/me', requireAuth, async (req, res) => {
 
 app.post('/api/builder/profile', requireAuth, async (req, res) => {
   if (req.account.role !== 'builder') return res.status(403).json({ error: 'Builder account required.' });
-  const { name, specializations, serviceLocations, about, priceRange, yearsExperience } = req.body || {};
+  const { name, specializations, serviceLocations, about, priceRange, yearsExperience, phone: rawPhone } = req.body || {};
   const trimmedName = String(name || '').trim();
   if (!trimmedName) return res.status(400).json({ error: 'Business name is required.' });
+  // A builder's phone is how customers reach them once an enquiry connects the two.
+  const existing = await store.getAccountById(req.account.accountId);
+  const phone = normalizePhone(rawPhone) || existing?.phone || null;
+  if (!phone) return res.status(400).json({ error: 'A valid phone number is required.' });
+  const account = phone !== existing?.phone ? await store.updateAccountPhone(req.account.accountId, phone) : existing;
 
   const profile = await store.saveBuilderProfile({
     accountId: req.account.accountId,
@@ -756,7 +795,7 @@ app.post('/api/builder/profile', requireAuth, async (req, res) => {
     priceRange: Array.isArray(priceRange) && priceRange.length === 2 ? priceRange.map(Number) : null,
     yearsExperience: Number(yearsExperience) || null,
   });
-  res.json({ ok: true, builderProfile: profile });
+  res.json({ ok: true, builderProfile: profile, account });
 });
 
 // Real signed-up builders — merged client-side with the static demo
@@ -791,6 +830,14 @@ app.post('/api/inquiries', requireAuth, aiRateLimit, async (req, res) => {
   if (!name || !EMAIL_RE.test(email)) {
     return res.status(400).json({ error: 'A name and a valid email are required.' });
   }
+  // The customer's registered phone: required, saved on their account, and shared
+  // with the builder alongside their email.
+  const phone = normalizePhone(customerPhone);
+  if (!phone) return res.status(400).json({ error: 'A valid phone number is required so the builder can reach you.' });
+  const customerAccount = (await store.getAccountById(req.account.accountId));
+  const savedAccount = customerAccount && customerAccount.phone !== phone
+    ? await store.updateAccountPhone(req.account.accountId, phone)
+    : customerAccount;
 
   // builderId may point at a real signed-up builder account (id === accountId)
   // rather than a static demo profile — if so, this inquiry becomes visible
@@ -808,6 +855,8 @@ app.post('/api/inquiries', requireAuth, aiRateLimit, async (req, res) => {
   // since builders don't have real accounts (see client/src/data/builders.js).
   const id = store.newId();
   const builderToken = crypto.randomBytes(24).toString('hex');
+
+  const builderTo = await builderInbox(builderAccountId);
 
   let emailSent = false;
   if (EMAIL_CONFIGURED) {
@@ -827,7 +876,7 @@ app.post('/api/inquiries', requireAuth, aiRateLimit, async (req, res) => {
     const replyLink = `${appOrigin(req)}/?view=builder-reply&inquiry=${id}&token=${builderToken}`;
 
     const builderResult = await sendEmail({
-      to: BUILDER_EMAIL,
+      to: builderTo,
       subject: `New house-design inquiry from ${name}`,
       html: `
         <h2>New inquiry via ArchVision AI</h2>
@@ -835,7 +884,7 @@ app.post('/api/inquiries', requireAuth, aiRateLimit, async (req, res) => {
         <p><strong>Name:</strong> ${safeName}<br/>
         <strong>Email:</strong> ${escapeHtml(email)}<br/>
         ${locationLine}
-        ${customerPhone ? `<strong>Phone:</strong> ${escapeHtml(customerPhone)}<br/>` : ''}</p>
+        <strong>Phone:</strong> ${escapeHtml(phone)}</p>
         ${safeMessage ? `<p><strong>Message:</strong><br/>${safeMessage}</p>` : ''}
         ${summaryLines ? `<h3>Design summary</h3><ul>${summaryLines}</ul>` : ''}
         <p><a href="${replyLink}">Reply to ${safeName} in ArchVision AI</a></p>
@@ -858,10 +907,10 @@ app.post('/api/inquiries', requireAuth, aiRateLimit, async (req, res) => {
 
   try {
     const record = await store.saveInquiry({
-      id, accountId: req.account.accountId, customerName: name, customerEmail: email, customerPhone, location, message,
+      id, accountId: req.account.accountId, customerName: name, customerEmail: email, customerPhone: phone, location, message,
       designSummary, builderId, builderName, builderAccountId, intent, builderToken, emailSent,
     });
-    res.json({ ok: true, id: record.id, emailSent });
+    res.json({ ok: true, id: record.id, emailSent, account: savedAccount });
   } catch (e) {
     res.status(e.status || 500).json({ error: e.message });
   }
@@ -903,7 +952,15 @@ app.get('/api/builder/inquiries', requireAuth, async (req, res) => {
 app.get('/api/inquiries/:id', async (req, res) => {
   try {
     const { inquiry, role } = await authorizeInquiryAccess(req.params.id, { account: getOptionalAccount(req), token: req.query.token });
-    res.json({ ok: true, inquiry: sanitizeInquiry(inquiry), viewerRole: role });
+    // Each side gets the OTHER party's contact details, now that an enquiry connects them.
+    let contact = null;
+    if (role === 'builder') {
+      contact = { name: inquiry.customerName, email: inquiry.customerEmail, phone: inquiry.customerPhone || null };
+    } else if (inquiry.builderAccountId) {
+      const b = await store.getAccountById(inquiry.builderAccountId);
+      if (b) contact = { name: inquiry.builderName, email: b.email, phone: b.phone || null };
+    }
+    res.json({ ok: true, inquiry: sanitizeInquiry(inquiry), viewerRole: role, contact });
   } catch (e) {
     res.status(e.status || 500).json({ error: e.message });
   }
@@ -935,11 +992,12 @@ app.post('/api/inquiries/:id/messages', aiRateLimit, async (req, res) => {
       const origin = appOrigin(req);
       if (role === 'customer') {
         const link = `${origin}/?view=builder-reply&inquiry=${inquiry.id}&token=${inquiry.builderToken}`;
-        sendEmail({
-          to: BUILDER_EMAIL,
+        const contactLine = inquiry.customerPhone ? `<p>Phone: ${escapeHtml(inquiry.customerPhone)} &middot; Email: ${escapeHtml(inquiry.customerEmail)}</p>` : '';
+        builderInbox(inquiry.builderAccountId).then((to) => sendEmail({
+          to,
           subject: `New reply from ${senderName} — ArchVision AI`,
-          html: `<p><strong>${escapeHtml(senderName)}</strong> replied:</p><p>${escapeHtml(text)}</p><p><a href="${link}">Open the conversation</a></p>`,
-        }).catch(() => {});
+          html: `<p><strong>${escapeHtml(senderName)}</strong> replied:</p><p>${escapeHtml(text)}</p>${contactLine}<p><a href="${link}">Open the conversation</a></p>`,
+        })).catch(() => {});
       } else {
         const link = `${origin}/?view=my-enquiry&inquiry=${inquiry.id}`;
         sendEmail({

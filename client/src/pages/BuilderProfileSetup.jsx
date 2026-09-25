@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { UserPlus } from 'lucide-react';
 import { saveBuilderProfile } from '../lib/api.js';
+import { getAccount, updateStoredAccount } from '../lib/auth.js';
 import { SPECIALIZATIONS, SERVICE_LOCATIONS } from '../data/builders.js';
 
 // Shown once, right after a first-time builder OTP verify (needsBuilderProfile
@@ -10,6 +11,7 @@ import { SPECIALIZATIONS, SERVICE_LOCATIONS } from '../data/builders.js';
 // on a half-filled real-builder record.
 export default function BuilderProfileSetup({ onDone }) {
   const [name, setName] = useState('');
+  const [phone, setPhone] = useState(getAccount()?.phone || '');
   const [specializations, setSpecializations] = useState([]);
   const [serviceLocations, setServiceLocations] = useState([]);
   const [about, setAbout] = useState('');
@@ -23,7 +25,7 @@ export default function BuilderProfileSetup({ onDone }) {
     setList(list.includes(value) ? list.filter((v) => v !== value) : [...list, value]);
   }
 
-  const valid = name.trim() && specializations.length > 0 && serviceLocations.length > 0 &&
+  const valid = name.trim() && phone.trim() && specializations.length > 0 && serviceLocations.length > 0 &&
     priceMin && priceMax && yearsExperience && about.trim();
 
   async function handleSubmit(e) {
@@ -34,12 +36,14 @@ export default function BuilderProfileSetup({ onDone }) {
     try {
       const result = await saveBuilderProfile({
         name: name.trim(),
+        phone: phone.trim(),
         specializations,
         serviceLocations,
         about: about.trim(),
         priceRange: [Number(priceMin), Number(priceMax)],
         yearsExperience: Number(yearsExperience),
       });
+      if (result.account) updateStoredAccount({ phone: result.account.phone });
       onDone?.(result.builderProfile);
     } catch (err) {
       setError(err.message || 'Something went wrong — please try again.');
@@ -59,6 +63,10 @@ export default function BuilderProfileSetup({ onDone }) {
         <form onSubmit={handleSubmit} className="login-form">
           <label className="field">Business name
             <input type="text" required value={name} onChange={(e) => setName(e.target.value)} placeholder="Your company name" disabled={state === 'sending'} />
+          </label>
+
+          <label className="field">Phone number <span className="field-hint">(customers call or WhatsApp you on this)</span>
+            <input type="tel" required value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="+91 90000 00000" disabled={state === 'sending'} />
           </label>
 
           <div className="field">

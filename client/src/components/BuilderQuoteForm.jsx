@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { Hammer, LogIn, Mail } from 'lucide-react';
 import { requestBuilderQuote } from '../lib/api.js';
-import { isLoggedIn } from '../lib/auth.js';
+import { getAccount, isLoggedIn, updateStoredAccount } from '../lib/auth.js';
 import { areaOf, areaUnitOf, bedroomCountOf, floorCountOf, getPlotSize } from '../lib/layout.js';
 import { fmtINR } from '../lib/format.js';
 import MessageThread from './MessageThread.jsx';
@@ -28,7 +28,9 @@ function summarize(design) {
 // already pass to onSave.
 export default function BuilderQuoteForm({ design, triggerLabel = 'Get a Builder Quote', onNavigate }) {
   const [open, setOpen] = useState(false);
-  const [form, setForm] = useState({ name: '', email: '', phone: '', message: '' });
+  // Prefilled from the signed-in account: the verified email, and the registered phone once saved.
+  const account = getAccount();
+  const [form, setForm] = useState({ name: '', email: account?.email || '', phone: account?.phone || '', message: '' });
   const [state, setState] = useState('idle'); // idle | sending | done | error
   const [emailSent, setEmailSent] = useState(false);
   const [inquiryId, setInquiryId] = useState(null);
@@ -51,6 +53,7 @@ export default function BuilderQuoteForm({ design, triggerLabel = 'Get a Builder
         designSummary: summarize(design),
       });
       setEmailSent(!!result.emailSent);
+      if (result.account) updateStoredAccount({ phone: result.account.phone });
       setInquiryId(result.id);
       setState('done');
     } catch (err) {
@@ -112,8 +115,8 @@ export default function BuilderQuoteForm({ design, triggerLabel = 'Get a Builder
         <label className="field">Email
           <input type="email" required value={form.email} onChange={update('email')} placeholder="you@example.com" disabled={state === 'sending'} />
         </label>
-        <label className="field">Phone <span className="field-hint">(optional)</span>
-          <input type="tel" value={form.phone} onChange={update('phone')} placeholder="+91 90000 00000" disabled={state === 'sending'} />
+        <label className="field">Phone <span className="field-hint">(builder will call/WhatsApp you)</span>
+          <input type="tel" required value={form.phone} onChange={update('phone')} placeholder="+91 90000 00000" disabled={state === 'sending'} />
         </label>
         <label className="field field-wide">Message <span className="field-hint">(optional)</span>
           <textarea rows={2} value={form.message} onChange={update('message')} placeholder="Anything the builder should know?" disabled={state === 'sending'} />

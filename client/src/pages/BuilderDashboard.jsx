@@ -3,6 +3,7 @@ import { motion } from 'framer-motion';
 import { ArrowLeft, Inbox } from 'lucide-react';
 import { listBuilderInquiries } from '../lib/api.js';
 import MessageThread from '../components/MessageThread.jsx';
+import ContactCard from '../components/ContactCard.jsx';
 
 // A logged-in builder's own inquiries — the real-account equivalent of the
 // demo builders' emailed token-link flow (which stays untouched; see
@@ -34,6 +35,7 @@ export default function BuilderDashboard() {
         <p className="section-sub" style={{ marginTop: 0 }}>
           Started {new Date(selected.createdAt).toLocaleDateString()}{selected.intent ? ` · ${selected.intent}` : ''}
         </p>
+        <ContactCard title="Customer contact" name={selected.customerName} email={selected.customerEmail} phone={selected.customerPhone} />
         <MessageThread inquiryId={selected.id} viewerRole="builder" />
       </div>
     );

@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { ArrowLeft } from 'lucide-react';
 import { getInquiry } from '../lib/api.js';
 import MessageThread from '../components/MessageThread.jsx';
+import ContactCard from '../components/ContactCard.jsx';
 
 // Customer-side thread view — reached from "My Enquiries" or the
 // ?view=my-enquiry&inquiry=ID link in a "new reply" email. Authorized by the
@@ -9,6 +10,7 @@ import MessageThread from '../components/MessageThread.jsx';
 export default function InquiryThread({ inquiryId, onBack }) {
   const [state, setState] = useState('loading'); // loading | ready | error
   const [inquiry, setInquiry] = useState(null);
+  const [contact, setContact] = useState(null);
   const [error, setError] = useState('');
 
   useEffect(() => {
@@ -20,6 +22,7 @@ export default function InquiryThread({ inquiryId, onBack }) {
     getInquiry({ id: inquiryId })
       .then((data) => {
         setInquiry(data.inquiry);
+        setContact(data.contact);
         setState('ready');
       })
       .catch((err) => {
@@ -55,6 +58,9 @@ export default function InquiryThread({ inquiryId, onBack }) {
       <p className="section-sub" style={{ marginTop: 0 }}>
         Started {new Date(inquiry.createdAt).toLocaleDateString()}{inquiry.intent ? ` · ${inquiry.intent}` : ''}
       </p>
+      {contact
+        ? <ContactCard title="Builder contact" name={contact.name || 'Builder'} email={contact.email} phone={contact.phone} />
+        : <p className="section-sub">This builder is a demo profile, so there is no direct phone or email — use the messages below.</p>}
       <MessageThread inquiryId={inquiry.id} viewerRole="customer" />
     </div>
   );

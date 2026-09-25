@@ -92,6 +92,7 @@ async function init() {
         )
       `);
       await pool.query('CREATE UNIQUE INDEX IF NOT EXISTS accounts_email_role_idx ON accounts (email, role)');
+      await pool.query('ALTER TABLE accounts ADD COLUMN IF NOT EXISTS phone TEXT');
       await pool.query(`
         CREATE TABLE IF NOT EXISTS builder_profiles (
           account_id TEXT PRIMARY KEY,
@@ -281,6 +282,7 @@ function rowToAccountRecord(row) {
     id: row.id,
     email: row.email,
     role: row.role,
+    phone: row.phone || null,
     createdAt: row.created_at instanceof Date ? row.created_at.toISOString() : row.created_at,
   };
 }
@@ -518,6 +520,21 @@ async function saveAccount({ email, role }) {
   return record;
 }
 
+// The account's registered phone number (E.164, already normalized by server.js).
+// Shared with the other party only once an enquiry connects the two.
+async function updateAccountPhone(id, phone) {
+  if (usePg) {
+    const res = await pool.query('UPDATE accounts SET phone = $2 WHERE id = $1 RETURNING *', [id, phone]);
+    return res.rows[0] ? rowToAccountRecord(res.rows[0]) : null;
+  }
+  const list = readAllAccounts();
+  const acc = list.find((a) => a.id === id);
+  if (!acc) return null;
+  acc.phone = phone;
+  writeAllAccounts(list);
+  return acc;
+}
+
 async function getBuilderProfile(accountId) {
   if (usePg) {
     const res = await pool.query('SELECT * FROM builder_profiles WHERE account_id = $1', [accountId]);
@@ -640,7 +657,7 @@ module.exports = {
   init, storageMode, saveDesign, listDesignsByAccount, getDesign, deleteDesign,
   saveInquiry, getInquiry, listInquiriesByAccount, listInquiriesForBuilderAccount,
   saveMessage, listMessages, newId,
-  getAccountByEmail, getAccountById, saveAccount,
+  getAccountByEmail, getAccountById, saveAccount, updateAccountPhone,
   getBuilderProfile, saveBuilderProfile, listBuilderAccounts,
   saveOtpCode, consumeOtpCode,
 };

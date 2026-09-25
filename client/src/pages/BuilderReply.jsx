@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { AlertTriangle } from 'lucide-react';
 import { getInquiry } from '../lib/api.js';
 import MessageThread from '../components/MessageThread.jsx';
+import ContactCard from '../components/ContactCard.jsx';
 
 // Reached only via the link in a builder's notification email
 // (?view=builder-reply&inquiry=ID&token=TOKEN) — the token is this build's
@@ -49,6 +50,7 @@ export default function BuilderReply({ inquiryId, token, onNavigateHome }) {
 
   return (
     <div className="builder-reply-page">
+      <ContactCard title="Customer contact" name={inquiry.customerName} email={inquiry.customerEmail} phone={inquiry.customerPhone} />
       <h4>Enquiry from {inquiry.customerName}</h4>
       <ul className="enquiry-overview">
         <li><span>Email</span><strong>{inquiry.customerEmail}</strong></li>

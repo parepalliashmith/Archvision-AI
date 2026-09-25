@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { LogIn, Mail, Send } from 'lucide-react';
 import { requestBuilderQuote } from '../lib/api.js';
-import { isLoggedIn } from '../lib/auth.js';
+import { getAccount, isLoggedIn, updateStoredAccount } from '../lib/auth.js';
 import { areaOf, areaUnitOf, bedroomCountOf, floorCountOf, getPlotSize } from '../lib/layout.js';
 import { fmtINR } from '../lib/format.js';
 import MessageThread from './MessageThread.jsx';
@@ -35,7 +35,9 @@ function summarize(design) {
 // message per button — see BuilderProfile.jsx). Same submit pipeline either
 // way: POST /api/inquiries, which always saves and best-effort emails.
 export default function ProjectEnquiryForm({ design, builder, intent, onClose, onNavigate }) {
-  const [form, setForm] = useState({ name: '', email: '', phone: '', location: '', message: intent || '' });
+  // Prefilled from the signed-in account: the verified email, and the registered phone once saved.
+  const account = getAccount();
+  const [form, setForm] = useState({ name: '', email: account?.email || '', phone: account?.phone || '', location: '', message: intent || '' });
   const [state, setState] = useState('idle'); // idle | sending | done | error
   const [emailSent, setEmailSent] = useState(false);
   const [inquiryId, setInquiryId] = useState(null);
@@ -62,6 +64,7 @@ export default function ProjectEnquiryForm({ design, builder, intent, onClose, o
         intent: intent || 'General enquiry',
       });
       setEmailSent(!!result.emailSent);
+      if (result.account) updateStoredAccount({ phone: result.account.phone });
       setInquiryId(result.id);
       setState('done');
     } catch (err) {
@@ -134,8 +137,8 @@ export default function ProjectEnquiryForm({ design, builder, intent, onClose, o
         <label className="field">Email
           <input type="email" required value={form.email} onChange={update('email')} placeholder="you@example.com" disabled={state === 'sending'} />
         </label>
-        <label className="field">Phone <span className="field-hint">(optional)</span>
-          <input type="tel" value={form.phone} onChange={update('phone')} placeholder="+91 90000 00000" disabled={state === 'sending'} />
+        <label className="field">Phone <span className="field-hint">(builder will call/WhatsApp you)</span>
+          <input type="tel" required value={form.phone} onChange={update('phone')} placeholder="+91 90000 00000" disabled={state === 'sending'} />
         </label>
         <label className="field">Location <span className="field-hint">(for matching)</span>
           <input type="text" required value={form.location} onChange={update('location')} placeholder="City" disabled={state === 'sending'} />

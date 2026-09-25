@@ -739,3 +739,15 @@ body::after {
   .saved-actions { flex-wrap: wrap; }
   .dashboard-welcome { flex-direction: column; align-items: stretch; }
 }
+
+/* ---- Contact card (customer <-> builder) ---- */
+.contact-card {
+  margin: 14px 0; padding: 14px 16px; border-radius: var(--radius); background: var(--bg-alt);
+  border: 1px solid var(--border);
+}
+.contact-card-head { display: flex; flex-direction: column; gap: 2px; margin-bottom: 8px; }
+.contact-card-title { font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.06em; color: var(--ink-soft); }
+.contact-card-rows { display: flex; flex-direction: column; gap: 4px; font-size: 0.9rem; margin-bottom: 10px; }
+.contact-card-row { display: inline-flex; align-items: center; gap: 7px; word-break: break-all; }
+.contact-card-muted { color: var(--ink-soft); font-style: italic; }
+.contact-card-actions { display: flex; flex-wrap: wrap; gap: 8px; }

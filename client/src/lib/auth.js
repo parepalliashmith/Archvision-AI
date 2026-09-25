@@ -30,3 +30,10 @@ export function clearSession() {
 export function isLoggedIn() {
   return !!getToken();
 }
+
+// Merge fresh account fields (e.g. a newly saved phone) into the cached session.
+export function updateStoredAccount(partial) {
+  const current = getAccount();
+  if (!current || !partial) return;
+  localStorage.setItem(ACCOUNT_KEY, JSON.stringify({ ...current, ...partial }));
+}
