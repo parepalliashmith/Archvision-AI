@@ -196,8 +196,9 @@ function buildRoomProgram({ bedrooms, bathrooms, floors, buildableAreaPerFloor, 
     if (floorEntries.length === 0) {
       // Degenerate case (more floors than rooms to put on them) — still give the
       // floor a usable room rather than leaving it empty.
-      floorEntries.push({ name: `Bedroom ${bedroomCounter + 1}`, type: 'bedroom', target: bedroomTarget });
-      bedroomCounter++;
+      // A study, not a bedroom: adding a bedroom here made a 1-bedroom request over 3
+      // floors come back with 2 bedrooms.
+      floorEntries.push({ name: `Family Lounge (F${f + 1})`, type: 'study', target: bedroomTarget });
     }
     // Reversing here only changes the order `subdivide` sees (and therefore how
     // the rectangle gets cut) — names/master-assignment above are already fixed,
