@@ -6,12 +6,6 @@ import RoomLegend from '../components/RoomLegend.jsx';
 import BuilderCard from '../components/BuilderCard.jsx';
 import { BUILDERS } from '../data/builders.js';
 import { SAMPLE_LAYOUTS, deriveRequirementsFromLayout, areaOf, areaUnitOf, roomCountOf, floorCountOf } from '../data/samples.js';
-import { getPlotSize } from '../lib/layout.js';
-import HERO_VILLA from '../data/heroVilla.json';
-
-// A generated "Modern Elevation" 4BHK villa (timber bay, fins, cantilevered car porch), shown
-// at dusk from the front like a listing photo.
-const HERO_LAYOUT = HERO_VILLA;
 
 const FEATURES = [
   { icon: Sparkles, title: 'AI-Powered', body: 'Designs' },
@@ -37,7 +31,6 @@ export default function Home({ onNavigate, savedCount, onSaveSample, onViewProfi
   const [saveState, setSaveState] = useState('idle'); // idle | saving | saved
   const reduceMotion = useReducedMotion();
   const featured = useMemo(() => BUILDERS.slice(0, 3), []);
-  const heroPlot = getPlotSize(HERO_LAYOUT);
 
   async function handleSave() {
     if (!selected) return;
@@ -59,7 +52,7 @@ export default function Home({ onNavigate, savedCount, onSaveSample, onViewProfi
   return (
     <div className="home">
       <section className="home-hero">
-        <div className="container home-hero-grid">
+        <div className="container home-hero-grid home-hero-grid--center">
           <div className="home-hero-copy">
             <motion.span className="pill-tag" initial={reduceMotion ? false : { opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.5 }}>
               AI-powered home design &amp; builder connect
@@ -88,29 +81,6 @@ export default function Home({ onNavigate, savedCount, onSaveSample, onViewProfi
               ))}
             </ul>
           </div>
-
-          <motion.div
-            className="home-hero-visual"
-            id="hero-visual"
-            initial={reduceMotion ? false : { opacity: 0, scale: 0.97 }}
-            animate={{ opacity: 1, scale: 1 }}
-            transition={{ duration: 0.7, delay: 0.1, ease: [0.16, 1, 0.3, 1] }}
-          >
-            <HouseViewer3D layout={HERO_LAYOUT} height={520} skipIntro initialLighting="dusk" showLabels={false} frontShot />
-            <div className="hero-visual-badge">
-              <span className="hero-visual-badge-dot" /> Live 3D — drag to look around
-            </div>
-            <div className="hero-float-card">
-              <strong>Modern Elevation Villa</strong>
-              <dl>
-                <dt>Plot</dt><dd>{heroPlot.width} × {heroPlot.depth} {heroPlot.unit}</dd>
-                <dt>Built-up area</dt><dd>{areaOf(HERO_LAYOUT)} {areaUnitOf(HERO_LAYOUT)}</dd>
-              </dl>
-              <button className="link-btn" onClick={() => onNavigate('create')}>
-                Design yours <ArrowRight size={13} />
-              </button>
-            </div>
-          </motion.div>
         </div>
       </section>
 
