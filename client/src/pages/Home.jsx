@@ -1,47 +1,146 @@
 import { useMemo, useState } from 'react';
 import { motion, useReducedMotion } from 'framer-motion';
-import { ArrowRight, Box, Calculator, ClipboardList, Handshake, Layers, Sparkles, Users } from 'lucide-react';
+import { ArrowRight, BadgeCheck, Box, Calculator, CheckCircle2, ClipboardList, Handshake, Home as HomeIcon, MapPin, Phone, Sparkles, User, UserSearch } from 'lucide-react';
 import HouseViewer3D from '../components/HouseViewer3D.jsx';
 import RoomLegend from '../components/RoomLegend.jsx';
 import BuilderCard from '../components/BuilderCard.jsx';
 import { BUILDERS } from '../data/builders.js';
 import { SAMPLE_LAYOUTS, deriveRequirementsFromLayout, areaOf, areaUnitOf, roomCountOf, floorCountOf } from '../data/samples.js';
+import HERO_VILLA from '../data/heroVilla.json';
 
-const FEATURES = [
-  { icon: Sparkles, title: 'AI-Powered', body: 'Designs' },
-  { icon: Box, title: '3D Visualization', body: '& Walkthrough' },
-  { icon: Users, title: 'Builders &', body: 'Engineers' },
-  { icon: Calculator, title: 'Cost', body: 'Estimate' },
+const ease = [0.16, 1, 0.3, 1];
+
+// The ten-step journey, shown as a row under the animated connection.
+const JOURNEY = ['Customer', 'AI Design', '2D + 3D', 'Cost Estimate', 'Find Builder', 'Project Request', 'Builder', 'Contact', 'Quotation', 'Construction'];
+
+const STORY = [
+  { n: '01', title: 'Tell us what you want to build.', body: 'Plot size, rooms, floors, style and budget — one short form.' },
+  { n: '02', title: 'AI designs your home.', body: 'A structured design is generated: rooms, walls, doors, windows, stairs. Rooms never overlap and always fit your plot.' },
+  { n: '03', title: 'Explore it in 2D and 3D.', body: 'The same design becomes a floor plan and an interactive 3D house you can walk through.' },
+  { n: '04', title: 'Understand the approximate cost.', body: 'A transparent rate-based estimate with a breakdown, checked against your budget.' },
+  { n: '05', title: 'Find the right construction professional.', body: 'Browse builders and civil engineers by location, service and specialization.' },
+  { n: '06', title: 'Send your project and connect.', body: 'The builder receives your plan, 3D model and cost. When they accept, email, phone and chat unlock for both of you.' },
+  { n: '07', title: 'Turn the design into a real home.', body: 'Discuss, receive a quotation and start the project from one shared workspace.' },
 ];
 
-const HOW_STEPS = [
-  { icon: ClipboardList, title: 'Enter your requirements', body: 'Plot size, budget, bedrooms/bathrooms, floors, and style — takes under a minute.' },
-  { icon: Box, title: 'Get an instant 3D design', body: 'A rule-based engine lays out rooms, doors and windows — walk through it in 3D.' },
-  { icon: Layers, title: 'Refine and compare', body: "Don't love it? Generate another version, save a few, and compare them side by side." },
-  { icon: Handshake, title: 'Connect with a builder', body: 'Send your design as an enquiry and talk by email and phone.' },
-];
+function FlowCard({ delay, children, className = '' }) {
+  const reduce = useReducedMotion();
+  return (
+    <motion.div
+      className={'flow-card ' + className}
+      initial={reduce ? false : { opacity: 0, y: 24, scale: 0.96 }}
+      whileInView={{ opacity: 1, y: 0, scale: 1 }}
+      viewport={{ once: true, margin: '-80px' }}
+      transition={{ duration: 0.7, delay, ease }}
+    >
+      {children}
+    </motion.div>
+  );
+}
 
-const fadeUp = {
-  hidden: { opacity: 0, y: 16 },
-  show: (i = 0) => ({ opacity: 1, y: 0, transition: { duration: 0.5, delay: i * 0.08, ease: [0.16, 1, 0.3, 1] } }),
-};
+function Connector({ delay }) {
+  const reduce = useReducedMotion();
+  return (
+    <motion.svg className="flow-connector" viewBox="0 0 80 12" aria-hidden="true">
+      <motion.path
+        d="M2 6 H78"
+        fill="none" stroke="currentColor" strokeWidth="2" strokeDasharray="5 5" strokeLinecap="round"
+        initial={reduce ? false : { pathLength: 0 }}
+        whileInView={{ pathLength: 1 }}
+        viewport={{ once: true, margin: '-80px' }}
+        transition={{ duration: 0.8, delay, ease: 'easeInOut' }}
+      />
+    </motion.svg>
+  );
+}
+
+function ConnectionStory() {
+  const reduce = useReducedMotion();
+  const chip = (text, delay, tone = '') => (
+    <motion.span
+      className={'flow-chip ' + tone}
+      initial={reduce ? false : { opacity: 0, y: 10 }}
+      whileInView={{ opacity: 1, y: 0 }}
+      viewport={{ once: true, margin: '-60px' }}
+      transition={{ duration: 0.5, delay, ease }}
+    >
+      <CheckCircle2 size={15} /> {text}
+    </motion.span>
+  );
+  return (
+    <section className="flow-section">
+      <div className="section-head"><div>
+        <span className="section-eyebrow">The bridge</span>
+        <h3>From Dream Home to Real Home</h3>
+        <p>We don't just help you design your home. We help you connect with the professional who can build it. The cards below are an illustration of the flow.</p>
+      </div></div>
+
+      <div className="flow-row">
+        <FlowCard delay={0}>
+          <span className="flow-badge"><User size={14} /> Customer</span>
+          <div className="flow-avatar">R</div>
+          <strong>Customer</strong>
+          <small><MapPin size={11} /> Your plot and requirements</small>
+          <small>Email verified · phone provided</small>
+        </FlowCard>
+        <Connector delay={0.5} />
+        <FlowCard delay={0.6}>
+          <span className="flow-badge"><Sparkles size={14} /> AI Design</span>
+          <div className="flow-mini-plan"><i /><i /><i /><i /><i /></div>
+          <strong>Valid layout</strong>
+          <small>Rooms, doors, windows, stairs</small>
+        </FlowCard>
+        <Connector delay={1.1} />
+        <FlowCard delay={1.2}>
+          <span className="flow-badge"><Box size={14} /> 3D House</span>
+          <div className="flow-mini-house"><span /><span /></div>
+          <strong>Interactive 3D</strong>
+          <small><Calculator size={11} /> Approximate cost</small>
+        </FlowCard>
+        <Connector delay={1.7} />
+        <FlowCard delay={1.8} className="flow-card--builder">
+          <span className="flow-badge flow-badge--builder"><HomeIcon size={14} /> Builder</span>
+          <div className="flow-avatar flow-avatar--builder">B</div>
+          <strong>Builder / Civil engineer</strong>
+          <small><BadgeCheck size={11} /> Profile · services · locations</small>
+          <small><Phone size={11} /> Contact unlocks on accept</small>
+        </FlowCard>
+      </div>
+
+      <div className="flow-chips">
+        {chip('Project request sent', 2.4)}
+        {chip('Builder accepted', 3.0)}
+        {chip('Connection established', 3.6, 'flow-chip--final')}
+      </div>
+
+      <ol className="journey">
+        {JOURNEY.map((j, i) => (
+          <motion.li
+            key={j}
+            initial={reduce ? false : { opacity: 0, y: 10 }}
+            whileInView={{ opacity: 1, y: 0 }}
+            viewport={{ once: true, margin: '-40px' }}
+            transition={{ duration: 0.4, delay: i * 0.06, ease }}
+          >
+            <b>{i + 1}</b>{j}
+          </motion.li>
+        ))}
+      </ol>
+    </section>
+  );
+}
 
 export default function Home({ onNavigate, savedCount, onSaveSample, onViewProfile, onContact }) {
   const [selected, setSelected] = useState(null);
   const [saveState, setSaveState] = useState('idle'); // idle | saving | saved
-  const reduceMotion = useReducedMotion();
+  const reduce = useReducedMotion();
   const featured = useMemo(() => BUILDERS.slice(0, 3), []);
 
   async function handleSave() {
     if (!selected) return;
     setSaveState('saving');
     try {
-      await onSaveSample({
-        layout: selected.layout,
-        cost: null,
-        requirements: deriveRequirementsFromLayout(selected.layout),
-        title: selected.layout.title,
-      });
+      await onSaveSample({ layout: selected.layout, cost: null, requirements: deriveRequirementsFromLayout(selected.layout), title: selected.layout.title });
       setSaveState('saved');
       setTimeout(() => setSaveState('idle'), 2000);
     } catch {
@@ -51,97 +150,74 @@ export default function Home({ onNavigate, savedCount, onSaveSample, onViewProfi
 
   return (
     <div className="home">
-      <section className="home-hero">
-        <div className="container home-hero-grid home-hero-grid--center">
-          <div className="home-hero-copy">
-            <motion.span className="pill-tag" initial={reduceMotion ? false : { opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.5 }}>
-              Built with the right people
+      {/* HERO */}
+      <section className="landing-hero">
+        <div className="blueprint-grid" aria-hidden="true" />
+        <div className="container landing-hero-grid">
+          <div className="landing-hero-copy">
+            <motion.span className="pill-tag" initial={reduce ? false : { opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.5 }}>
+              BuildBridge AI · Customer ↔ Builder
             </motion.span>
-            <motion.h1 className="hero-title" initial={reduceMotion ? false : { opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.6, delay: 0.05 }}>
-              Your Dream Home,<br />Designed with AI.
+            <motion.h1 initial={reduce ? false : { opacity: 0, y: 18 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.7, delay: 0.05, ease }}>
+              Design Your Home.<br />Find Your Builder.<br /><span className="accent">Build Your Future.</span>
             </motion.h1>
-            <motion.p className="hero-sub" initial={reduceMotion ? false : { opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.6, delay: 0.1 }}>
-              Design your home with AI, visualize it in 3D, get an estimated cost, and connect with
-              builders &amp; civil engineers by email and phone — all in one place.
+            <motion.p className="landing-sub" initial={reduce ? false : { opacity: 0, y: 18 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.7, delay: 0.12, ease }}>
+              Create personalized AI-powered home designs, explore them in interactive 2D and 3D, estimate construction costs, and connect with registered builders and civil engineers.
             </motion.p>
-            <motion.div className="hero-actions" initial={reduceMotion ? false : { opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.6, delay: 0.16 }}>
-              <button className="btn btn-primary btn-lg" onClick={() => onNavigate('create')}>
-                Start Designing <ArrowRight size={17} />
-              </button>
-              <button className="btn btn-ghost btn-lg" onClick={() => onNavigate('find-builders')}>
-                Find a Builder
-              </button>
+            <motion.div className="hero-actions" initial={reduce ? false : { opacity: 0, y: 18 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.7, delay: 0.2, ease }}>
+              <button className="btn btn-navy btn-lg" onClick={() => onNavigate('create')}>Start Designing <ArrowRight size={17} /></button>
+              <button className="btn btn-ghost btn-lg" onClick={() => onNavigate('become-builder')}>I'm a Builder</button>
             </motion.div>
-            <ul className="feature-strip">
-              {FEATURES.map((f) => (
-                <li key={f.title}>
-                  <f.icon size={22} strokeWidth={1.6} />
-                  <span><strong>{f.title}</strong><small>{f.body}</small></span>
-                </li>
-              ))}
+            <ul className="landing-points">
+              <li><Sparkles size={16} /> AI home design</li>
+              <li><Box size={16} /> Interactive 2D + 3D</li>
+              <li><Calculator size={16} /> Cost estimate</li>
+              <li><Handshake size={16} /> Connection to builders</li>
             </ul>
           </div>
+
+          <motion.div className="landing-hero-visual" initial={reduce ? false : { opacity: 0, scale: 0.97 }} animate={{ opacity: 1, scale: 1 }} transition={{ duration: 0.9, delay: 0.1, ease }}>
+            <HouseViewer3D layout={HERO_VILLA} height={540} skipIntro initialLighting="dusk" showLabels={false} frontShot />
+            <span className="hero-chip hero-chip--a"><ClipboardList size={13} /> 2D plan</span>
+            <span className="hero-chip hero-chip--b"><Box size={13} /> Live 3D · drag to look around</span>
+            <span className="hero-chip hero-chip--c"><UserSearch size={13} /> Send it to a builder</span>
+          </motion.div>
         </div>
       </section>
 
       <div className="container">
-        <section className="how-it-works" id="how-it-works">
-          {HOW_STEPS.map((step, i) => (
+        <ConnectionStory />
+
+        {/* STORY */}
+        <section className="story">
+          {STORY.map((s) => (
             <motion.div
-              className="how-step"
-              key={step.title}
-              variants={fadeUp}
-              custom={i}
-              initial={reduceMotion ? false : 'hidden'}
-              whileInView="show"
-              viewport={{ once: true, margin: '-60px' }}
+              className="story-step"
+              key={s.n}
+              initial={reduce ? false : { opacity: 0, y: 28 }}
+              whileInView={{ opacity: 1, y: 0 }}
+              viewport={{ once: true, margin: '-70px' }}
+              transition={{ duration: 0.6, delay: 0.04, ease }}
             >
-              <span className="how-step-num"><step.icon size={18} strokeWidth={1.8} /></span>
-              <div>
-                <strong>{step.title}</strong>
-                <p>{step.body}</p>
-              </div>
+              <span className="story-num">{s.n}</span>
+              <div><h4>{s.title}</h4><p>{s.body}</p></div>
             </motion.div>
           ))}
         </section>
 
-        <section className="bridge-section">
-          <div className="section-head"><div><h3>How customers and builders connect</h3><p>One verified link between the person who wants a house and the person who can build it</p></div></div>
-          <div className="bridge-grid">
-            <div className="bridge-role bridge-role--customer">
-              <span className="bridge-badge">Customer</span>
-              <ul>
-                <li>Enters plot, rooms and budget</li>
-                <li>Gets a 2D / 3D design and cost</li>
-                <li>Signs in with an emailed code and adds a phone number</li>
-                <li>Sends the design to a chosen builder</li>
-              </ul>
-            </div>
-            <div className="bridge-mid">
-              <span className="bridge-arrow">⇄</span>
-              <strong>Enquiry with the design attached</strong>
-              <small>Messages in the app · Call · WhatsApp · Email</small>
-            </div>
-            <div className="bridge-role bridge-role--builder">
-              <span className="bridge-badge">Builder / Civil engineer</span>
-              <ul>
-                <li>Registers with profile and phone number</li>
-                <li>Receives plot, area, floors, style and budget</li>
-                <li>Replies in the app or by phone</li>
-                <li>Sees the customer's contact after the enquiry</li>
-              </ul>
-            </div>
+        {/* TWO ROLES */}
+        <section className="role-split">
+          <div className="role-panel">
+            <span className="bridge-badge">For customers</span>
+            <h3>Plan, visualize and hire — in one place</h3>
+            <ul><li>Generate and compare designs</li><li>Walk through your home in 3D</li><li>Send the design to a builder</li><li>Chat, get a quotation, start the project</li></ul>
+            <button className="btn btn-navy" onClick={() => onNavigate('create')}>Start Designing <ArrowRight size={16} /></button>
           </div>
-        </section>
-
-        <section className="connect-banner connect-banner--wide">
-          <div>
-            <h3>Connect with Builders &amp; Civil Engineers</h3>
-            <p>Sign in with a one-time email code, send your design, and see each other's verified email and registered phone — call or WhatsApp right from the page.</p>
-          </div>
-          <div className="hero-actions">
-            <button className="btn btn-gold" onClick={() => onNavigate('find-builders')}>Find Builders <ArrowRight size={15} /></button>
-            <button className="btn btn-outline-light" onClick={() => onNavigate('become-builder')}>Register as a Builder</button>
+          <div className="role-panel role-panel--builder">
+            <span className="bridge-badge">For builders &amp; civil engineers</span>
+            <h3>Receive projects that arrive ready to review</h3>
+            <ul><li>Plot, plan, 3D model and cost with every request</li><li>Accept or decline — contact unlocks on accept</li><li>Send quotations from a shared workspace</li><li>Profile with services, locations and availability</li></ul>
+            <button className="btn btn-gold" onClick={() => onNavigate('become-builder')}>Register as a Builder <ArrowRight size={16} /></button>
           </div>
         </section>
 
@@ -149,7 +225,7 @@ export default function Home({ onNavigate, savedCount, onSaveSample, onViewProfi
           <div className="section-head">
             <div>
               <h3>Explore a sample design</h3>
-              <p>Pick one to preview it in 3D, or save it to My Designs to try the compare feature.{savedCount > 0 ? ` You have ${savedCount} saved.` : ''}</p>
+              <p>Pick one to preview it in 3D, or save it to My Designs to try comparing.{savedCount > 0 ? ` You have ${savedCount} saved.` : ''}</p>
             </div>
           </div>
           <div className="sample-grid">
@@ -158,12 +234,11 @@ export default function Home({ onNavigate, savedCount, onSaveSample, onViewProfi
                 key={s.id}
                 className={'sample-card' + (selected?.id === s.id ? ' active' : '')}
                 onClick={() => { setSelected(s); setSaveState('idle'); }}
-                variants={fadeUp}
-                custom={i}
-                initial={reduceMotion ? false : 'hidden'}
-                whileInView="show"
+                initial={reduce ? false : { opacity: 0, y: 16 }}
+                whileInView={{ opacity: 1, y: 0 }}
                 viewport={{ once: true, margin: '-40px' }}
-                whileHover={reduceMotion ? undefined : { y: -3 }}
+                transition={{ duration: 0.5, delay: i * 0.05, ease }}
+                whileHover={reduce ? undefined : { y: -3 }}
               >
                 <strong>{s.label}</strong>
                 <span>
@@ -175,7 +250,7 @@ export default function Home({ onNavigate, savedCount, onSaveSample, onViewProfi
           </div>
 
           {selected && (
-            <motion.div className="result" initial={reduceMotion ? false : { opacity: 0, y: 14 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.4 }}>
+            <motion.div className="result" initial={reduce ? false : { opacity: 0, y: 14 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.4 }}>
               <div className="result-header">
                 <div>
                   <h3>{selected.layout.title}</h3>
@@ -207,7 +282,7 @@ export default function Home({ onNavigate, savedCount, onSaveSample, onViewProfi
         </section>
 
         <footer className="site-footer">
-          <p>Design-assistance &amp; visualization tool only — not a substitute for a licensed architect or structural engineer.</p>
+          <p>BuildBridge AI is a design-assistance and visualization tool. Designs and costs are approximate concept-stage estimates — not a substitute for a licensed architect or structural engineer.</p>
         </footer>
       </div>
     </div>

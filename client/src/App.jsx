@@ -12,14 +12,14 @@ import FindBuilders from './pages/FindBuilders.jsx';
 import BuilderProfile from './pages/BuilderProfile.jsx';
 import BuilderReply from './pages/BuilderReply.jsx';
 import MyEnquiries from './pages/MyEnquiries.jsx';
-import InquiryThread from './pages/InquiryThread.jsx';
+import ProjectWorkspace from './pages/ProjectWorkspace.jsx';
 import Login from './pages/Login.jsx';
 import BuilderProfileSetup from './pages/BuilderProfileSetup.jsx';
 import BuilderDashboard from './pages/BuilderDashboard.jsx';
 import Dashboard from './pages/Dashboard.jsx';
 import HowItWorks from './pages/HowItWorks.jsx';
 import Pricing from './pages/Pricing.jsx';
-import MyProjects from './pages/MyProjects.jsx';
+import Connections from './pages/MyProjects.jsx';
 import Documents from './pages/Documents.jsx';
 import Profile from './pages/Profile.jsx';
 import Settings from './pages/Settings.jsx';
@@ -37,10 +37,15 @@ const PAGE_TITLES = {
   'builder-profile': 'Builder Profile',
   'builder-reply': 'Builder Reply',
   'my-enquiries': 'My Enquiries',
-  'my-enquiry': 'Conversation',
+  'my-enquiry': 'Project Workspace',
+  connections: 'Connection Center',
+  'builder-requests': 'Project Requests',
+  'builder-active': 'Active Projects',
+  'builder-messages': 'Messages',
+  'builder-quotations': 'Quotations',
   login: 'Sign In',
   'builder-profile-setup': 'Complete Your Profile',
-  'builder-dashboard': 'Builder Dashboard',
+  'builder-dashboard': 'Builder Overview',
   'my-projects': 'My Projects',
   documents: 'Documents',
   profile: 'Profile',
@@ -70,9 +75,9 @@ function initialViewFromLocation() {
 // Views that require a logged-in account of a specific role — rendered as a
 // shared "log in to continue" prompt instead of the page itself otherwise,
 // rather than duplicating that check inside every page component.
-const CUSTOMER_VIEWS = ['dashboard', 'my-designs', 'compare', 'my-enquiries', 'my-enquiry', 'my-projects', 'documents'];
+const CUSTOMER_VIEWS = ['dashboard', 'my-designs', 'compare', 'my-enquiries', 'my-enquiry', 'my-projects', 'connections', 'documents'];
 const ANY_ACCOUNT_VIEWS = ['profile', 'settings'];
-const BUILDER_VIEWS = ['builder-dashboard'];
+const BUILDER_VIEWS = ['builder-dashboard', 'builder-requests', 'builder-active', 'builder-messages', 'builder-quotations'];
 
 // 'upload' and 'create' badges depend on whether the server actually has
 // GEMINI_API_KEY set — checked once via /api/health (see aiConfigured state
@@ -97,7 +102,12 @@ function pageBadges(aiConfigured) {
     'my-enquiry': 'Signed-in account required — email-OTP login, no passwords',
     login: 'Email-OTP login — no passwords, no accounts stored anywhere else',
     'builder-profile-setup': 'One-time setup for a new builder account',
-    'builder-dashboard': 'Signed-in builder account required',
+    'builder-dashboard': 'Your requests, projects and quotations at a glance',
+    connections: 'Every project you have sent to a builder, and where it stands',
+    'builder-requests': 'Customers who sent you a project to review',
+    'builder-active': 'Requests you accepted and projects in progress',
+    'builder-messages': 'Conversations with your customers',
+    'builder-quotations': 'Quotations you sent and their answers',
     'my-projects': 'Enquiries you have sent to builders',
     documents: 'Project briefs for your saved designs',
     profile: 'Your account and contact details',
@@ -320,13 +330,10 @@ export default function App() {
         />
       )}
       {view === 'my-enquiry' && (
-        <InquiryThread
-          inquiryId={selectedInquiryId}
-          onBack={() => setView('my-enquiries')}
-        />
+        <ProjectWorkspace inquiryId={selectedInquiryId} viewer="customer" onBack={() => setView('connections')} backLabel="Back to Connection Center" />
       )}
-      {view === 'my-projects' && (
-        <MyProjects onOpen={(id) => { setSelectedInquiryId(id); setView('my-enquiry'); }} onNavigate={navigate} />
+      {(view === 'connections' || view === 'my-projects') && (
+        <Connections onOpen={(id) => { setSelectedInquiryId(id); setView('my-enquiry'); }} onNavigate={navigate} />
       )}
       {view === 'documents' && <Documents designs={designs} onNavigate={navigate} />}
       {view === 'profile' && (
@@ -343,7 +350,11 @@ export default function App() {
       {view === 'builder-profile-setup' && (
         <BuilderProfileSetup initial={editingBuilderProfile} onDone={() => { setEditingBuilderProfile(null); setView('builder-dashboard'); }} />
       )}
-      {view === 'builder-dashboard' && <BuilderDashboard />}
+      {view === 'builder-dashboard' && <BuilderDashboard mode="overview" />}
+      {view === 'builder-requests' && <BuilderDashboard mode="requests" />}
+      {view === 'builder-active' && <BuilderDashboard mode="active" />}
+      {view === 'builder-messages' && <BuilderDashboard mode="messages" />}
+      {view === 'builder-quotations' && <BuilderDashboard mode="quotations" />}
     </>
   );
 

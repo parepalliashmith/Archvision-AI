@@ -81,6 +81,19 @@ export default function BuilderProfile({ builderId, design, initialIntent, onBac
         <h3>About</h3>
         <p>{builder.about}</p>
         <p className="builder-card-specialties">Specializes in: {builder.specializations.join(' · ')}</p>
+        {builder.services?.length > 0 && <p className="builder-card-specialties">Services: {builder.services.join(' · ')}</p>}
+        <div className="trust-row">
+          {isRealBuilder ? (
+            <>
+              <span className="trust-item trust-item--ok">✓ Email verified by one-time code</span>
+              <span className="trust-item">Phone provided · not SMS-verified</span>
+              <span className="trust-item">Credentials not reviewed by BuildBridge AI</span>
+            </>
+          ) : (
+            <span className="trust-item">Sample profile for demonstration</span>
+          )}
+        </div>
+        <p className="muted-note">Contact details are never shown publicly. They unlock for both sides when this builder accepts your project request.</p>
       </section>
 
       <section>
@@ -100,7 +113,7 @@ export default function BuilderProfile({ builderId, design, initialIntent, onBac
       </section>
 
       <div className="builder-profile-actions">
-        <button className="btn btn-primary btn-sm" onClick={() => setOpenIntent('contact')}><MessageSquare size={15} /> {INTENTS.contact.label}</button>
+        <button className="btn btn-navy" onClick={() => setOpenIntent('contact')}><MessageSquare size={15} /> Connect With This Builder</button>
         <button className="btn btn-ghost btn-sm" onClick={() => setOpenIntent('quote')}>{INTENTS.quote.label}</button>
         <button className="btn btn-ghost btn-sm" onClick={() => setOpenIntent('consult')}><Calendar size={15} /> {INTENTS.consult.label}</button>
       </div>

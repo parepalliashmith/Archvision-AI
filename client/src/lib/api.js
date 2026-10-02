@@ -111,14 +111,14 @@ export function deleteDesign(id) {
 // rather than the generic "Talk to a Construction Expert" quote box.
 export function requestBuilderQuote({
   customerName, customerEmail, customerPhone, message, designSummary,
-  builderId, builderName, intent, location,
+  builderId, builderName, intent, location, design,
 }) {
   return fetch(`${API_BASE}/api/inquiries`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', ...authHeaders() },
     body: JSON.stringify({
       customerName, customerEmail, customerPhone, message, designSummary,
-      builderId, builderName, intent, location,
+      builderId, builderName, intent, location, design,
     }),
   }).then(asJson);
 }
@@ -197,3 +197,11 @@ export function savePhone(phone) {
     body: JSON.stringify({ phone }),
   }).then(asJson);
 }
+
+// Connection lifecycle: builder accepts/declines and sends a quotation; customer answers it.
+function postJson(path, body) {
+  return fetch(API_BASE + path, { method: 'POST', headers: { 'Content-Type': 'application/json', ...authHeaders() }, body: JSON.stringify(body) }).then(asJson);
+}
+export const respondToRequest = (id, action, token) => postJson('/api/inquiries/' + id + '/respond', { action, token });
+export const sendQuotation = (id, { amount, weeks, notes }, token) => postJson('/api/inquiries/' + id + '/quotation', { amount, weeks, notes, token });
+export const respondToQuotation = (id, action) => postJson('/api/inquiries/' + id + '/quotation/respond', { action });

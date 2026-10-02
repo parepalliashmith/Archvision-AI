@@ -1,20 +1,22 @@
-import { Briefcase, CircleDollarSign, HelpCircle, LogIn, PencilRuler, Calculator, FileText, FolderOpen, Home, Inbox, LayoutDashboard, MessageCircle, Settings, User, UserSearch } from 'lucide-react';
+import { Box, Handshake, Briefcase, CircleDollarSign, HelpCircle, LogIn, PencilRuler, Calculator, FileText, FolderOpen, Home, Inbox, LayoutDashboard, MessageCircle, Settings, User, UserSearch } from 'lucide-react';
 
 const CUSTOMER_ITEMS = [
   { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
   { id: 'my-designs', label: 'My Designs', icon: FolderOpen, match: ['my-designs', 'compare'] },
-  { id: 'find-builders', label: 'Find a Builder', icon: UserSearch, match: ['find-builders', 'builder-profile'] },
-  { id: 'my-enquiries', label: 'Messages', icon: MessageCircle, match: ['my-enquiries', 'my-enquiry'] },
-  { id: 'my-projects', label: 'My Projects', icon: Briefcase },
-  { id: 'cost-estimator', label: 'Cost Estimator', icon: Calculator },
-  { id: 'documents', label: 'Documents', icon: FileText },
-  { id: 'profile', label: 'Profile', icon: User },
+  { id: 'create', label: '3D Studio', icon: Box, match: ['create', 'upload'] },
+  { id: 'cost-estimator', label: 'Cost Estimation', icon: Calculator },
+  { id: 'find-builders', label: 'Find Builders', icon: UserSearch, match: ['find-builders', 'builder-profile'] },
+  { id: 'connections', label: 'Connections', icon: Handshake, match: ['connections', 'my-projects', 'my-enquiry'] },
+  { id: 'my-enquiries', label: 'Messages', icon: MessageCircle },
   { id: 'settings', label: 'Settings', icon: Settings },
 ];
 
 const BUILDER_ITEMS = [
-  { id: 'builder-dashboard', label: 'Inquiries', icon: Inbox },
-  { id: 'find-builders', label: 'Builder Directory', icon: UserSearch, match: ['find-builders', 'builder-profile'] },
+  { id: 'builder-dashboard', label: 'Overview', icon: LayoutDashboard },
+  { id: 'builder-requests', label: 'Project Requests', icon: Inbox },
+  { id: 'builder-active', label: 'Active Projects', icon: Briefcase },
+  { id: 'builder-messages', label: 'Messages', icon: MessageCircle },
+  { id: 'builder-quotations', label: 'Quotations', icon: FileText },
   { id: 'profile', label: 'Profile', icon: User },
   { id: 'settings', label: 'Settings', icon: Settings },
 ];

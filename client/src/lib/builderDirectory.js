@@ -34,7 +34,8 @@ export function normalizeRealBuilder(b) {
     rating: 0,
     projectsCompleted: 0,
     portfolio: [],
-    availability: 'available',
+    availability: b.availability || 'available',
+    services: b.services || [],
     initials: initialsOf(b.name),
     avatarColor: colorFromString(b.name),
   };

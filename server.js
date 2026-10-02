@@ -101,6 +101,8 @@ function aiRateLimit(req, res, next) {
 // whatever the client sends — same "duplicate a tiny constant list for
 // server-side validation" pattern already used for ROOM_TYPES etc.
 const SPECIALIZATIONS = ['Modern', 'Traditional', 'Contemporary', 'Farmhouse', 'Compact urban'];
+const AVAILABILITY = ['available', 'busy', 'booked'];
+const BUILDER_SERVICES = ['Full construction', 'Civil engineering', 'Interior work', 'Renovation', 'Structural design', 'Project management'];
 const SERVICE_LOCATIONS = ['Hyderabad', 'Bangalore', 'Chennai', 'Mumbai', 'Pune', 'Delhi NCR', 'Kochi', 'Coimbatore'];
 
 // Email-OTP login. requireAuth 401s when there's no valid session; the
@@ -777,7 +779,7 @@ app.get('/api/auth/me', requireAuth, async (req, res) => {
 
 app.post('/api/builder/profile', requireAuth, async (req, res) => {
   if (req.account.role !== 'builder') return res.status(403).json({ error: 'Builder account required.' });
-  const { name, specializations, serviceLocations, about, priceRange, yearsExperience, phone: rawPhone } = req.body || {};
+  const { name, specializations, serviceLocations, about, priceRange, yearsExperience, phone: rawPhone, availability, services } = req.body || {};
   const trimmedName = String(name || '').trim();
   if (!trimmedName) return res.status(400).json({ error: 'Business name is required.' });
   // A builder's phone is how customers reach them once an enquiry connects the two.
@@ -794,6 +796,8 @@ app.post('/api/builder/profile', requireAuth, async (req, res) => {
     about: String(about || '').slice(0, 600),
     priceRange: Array.isArray(priceRange) && priceRange.length === 2 ? priceRange.map(Number) : null,
     yearsExperience: Number(yearsExperience) || null,
+    availability: AVAILABILITY.includes(availability) ? availability : 'available',
+    services: Array.isArray(services) ? services.filter((x) => BUILDER_SERVICES.includes(x)) : [],
   });
   res.json({ ok: true, builderProfile: profile, account });
 });
@@ -807,7 +811,7 @@ app.get('/api/builders', async (_req, res) => {
     builders: builders.map((b) => ({
       id: b.accountId, name: b.name, specializations: b.specializations,
       serviceLocations: b.serviceLocations, about: b.about, priceRange: b.priceRange,
-      yearsExperience: b.yearsExperience, source: 'account',
+      yearsExperience: b.yearsExperience, availability: b.availability, services: b.services, source: 'account',
     })),
   });
 });
@@ -824,7 +828,7 @@ function appOrigin(req) {
 
 app.post('/api/inquiries', requireAuth, aiRateLimit, async (req, res) => {
   if (req.account.role !== 'customer') return res.status(403).json({ error: 'Customer account required.' });
-  const { customerName, customerEmail, customerPhone, location, message, designSummary, builderId, builderName, intent } = req.body || {};
+  const { customerName, customerEmail, customerPhone, location, message, designSummary, builderId, builderName, intent, design } = req.body || {};
   const name = String(customerName || '').trim();
   const email = String(customerEmail || '').trim();
   if (!name || !EMAIL_RE.test(email)) {
@@ -853,6 +857,12 @@ app.post('/api/inquiries', requireAuth, aiRateLimit, async (req, res) => {
   // reply-thread link can be embedded in the notification email below —
   // the token is this build's only "builder credential" for that thread,
   // since builders don't have real accounts (see client/src/data/builders.js).
+  // The design snapshot (layout + cost) that the builder reviews. Size-capped: it is stored with the request.
+  let designSnapshot = null;
+  if (design && design.layout) {
+    if (JSON.stringify(design).length > 600000) return res.status(413).json({ error: 'That design is too large to attach.' });
+    designSnapshot = { layout: design.layout, cost: design.cost || null, requirements: design.requirements || null, title: String(design.title || design.layout.title || 'House design').slice(0, 120) };
+  }
   const id = store.newId();
   const builderToken = crypto.randomBytes(24).toString('hex');
 
@@ -882,9 +892,9 @@ app.post('/api/inquiries', requireAuth, aiRateLimit, async (req, res) => {
         <h2>New inquiry via BuildBridge AI</h2>
         ${builderLine}${intentLine}
         <p><strong>Name:</strong> ${safeName}<br/>
-        <strong>Email:</strong> ${escapeHtml(email)}<br/>
+        ${builderAccountId ? '' : `<strong>Email:</strong> ${escapeHtml(email)}<br/>`}
         ${locationLine}
-        <strong>Phone:</strong> ${escapeHtml(phone)}</p>
+        ${builderAccountId ? '<em>Email and phone are shared once you accept this request.</em>' : `<strong>Phone:</strong> ${escapeHtml(phone)}`}</p>
         ${safeMessage ? `<p><strong>Message:</strong><br/>${safeMessage}</p>` : ''}
         ${summaryLines ? `<h3>Design summary</h3><ul>${summaryLines}</ul>` : ''}
         <p><a href="${replyLink}">Reply to ${safeName} in BuildBridge AI</a></p>
@@ -896,7 +906,7 @@ app.post('/api/inquiries', requireAuth, aiRateLimit, async (req, res) => {
       subject: 'We received your house-design request — BuildBridge AI',
       html: `
         <h2>Thanks, ${safeName}!</h2>
-        <p>We've received your request${builderName ? ` for ${escapeHtml(builderName)}` : ''} and a builder will reach out to you shortly to discuss your design.</p>
+        <p>We've received your request${builderName ? ` for ${escapeHtml(builderName)}` : ''}. You will be notified when the builder responds; contact details are shared once they accept.</p>
         ${summaryLines ? `<h3>Your design</h3><ul>${summaryLines}</ul>` : ''}
         <p style="color:#666;font-size:13px;">This is an approximate concept-stage design, not a construction-ready plan.</p>
       `.trim(),
@@ -908,7 +918,7 @@ app.post('/api/inquiries', requireAuth, aiRateLimit, async (req, res) => {
   try {
     const record = await store.saveInquiry({
       id, accountId: req.account.accountId, customerName: name, customerEmail: email, customerPhone: phone, location, message,
-      designSummary, builderId, builderName, builderAccountId, intent, builderToken, emailSent,
+      designSummary, builderId, builderName, builderAccountId, intent, builderToken, emailSent, design: designSnapshot,
     });
     res.json({ ok: true, id: record.id, emailSent, account: savedAccount });
   } catch (e) {
@@ -930,21 +940,53 @@ async function authorizeInquiryAccess(inquiryId, { account, token }) {
   throw Object.assign(new Error('Not authorized to view this inquiry.'), { status: 403 });
 }
 
-function sanitizeInquiry(inquiry) {
-  const { builderToken, ...safe } = inquiry;
+// Once a real builder account has accepted, the two parties may see each other's email and phone.
+// Demo builders (no account) keep the old behaviour: they only ever see what the enquiry carried.
+const CONTACT_STATUSES = ['accepted', 'quotation', 'project'];
+function contactEnabled(inquiry) {
+  return !inquiry.builderAccountId || CONTACT_STATUSES.includes(inquiry.status);
+}
+
+// What a viewer may see of an inquiry. A builder does not receive the customer's email or phone
+// before accepting; the customer always sees their own details. The token and the (large)
+// design snapshot never travel in list responses.
+function sanitizeInquiry(inquiry, role = 'customer') {
+  const { builderToken, design, ...safe } = inquiry;
+  safe.hasDesign = !!design;
+  if (role === 'builder' && !contactEnabled(inquiry)) {
+    safe.customerEmail = null;
+    safe.customerPhone = null;
+  }
   return safe;
+}
+
+// The seven connection stages shown on the timeline. Each flag is derived from stored records.
+function connectionStages(inquiry, msgs) {
+  const accepted = CONTACT_STATUSES.includes(inquiry.status);
+  return {
+    requested: true,
+    reviewing: inquiry.status !== 'requested' || !!inquiry.viewedAt,
+    accepted,
+    contact: accepted,
+    discussion: accepted && msgs.length > 0,
+    quotation: inquiry.status === 'quotation' || inquiry.status === 'project',
+    project: inquiry.status === 'project',
+    declined: inquiry.status === 'declined',
+  };
 }
 
 // A customer's own inquiries, for the "My Enquiries" list page.
 // Adds the customer <-> builder relationship summary to each inquiry: how far the
 // conversation has got (used for the progress timeline on both dashboards).
-async function withRelationship(inquiries) {
+async function withRelationship(inquiries, role = 'customer') {
   return Promise.all(inquiries.map(async (inq) => {
     const msgs = await store.listMessages(inq.id);
     const last = msgs[msgs.length - 1] || null;
     return {
-      ...sanitizeInquiry(inq),
+      ...sanitizeInquiry(inq, role),
+      quotation: inq.quotation || null,
       relationship: {
+        stages: connectionStages(inq, msgs),
         designShared: !!inq.designSummary,
         builderReplied: msgs.some((m) => m.senderRole === 'builder'),
         contactShared: !!inq.builderAccountId,
@@ -957,29 +999,101 @@ async function withRelationship(inquiries) {
 
 app.get('/api/inquiries', requireAuth, async (req, res) => {
   const inquiries = await store.listInquiriesByAccount(req.account.accountId);
-  res.json({ ok: true, inquiries: await withRelationship(inquiries) });
+  res.json({ ok: true, inquiries: await withRelationship(inquiries, 'customer') });
 });
 
 // A builder's own inquiries, for their dashboard.
 app.get('/api/builder/inquiries', requireAuth, async (req, res) => {
   if (req.account.role !== 'builder') return res.status(403).json({ error: 'Builder account required.' });
   const inquiries = await store.listInquiriesForBuilderAccount(req.account.accountId);
-  res.json({ ok: true, inquiries: await withRelationship(inquiries) });
+  res.json({ ok: true, inquiries: await withRelationship(inquiries, 'builder') });
 });
 
 // Single inquiry, for context on the builder-reply page or a customer's thread view.
 app.get('/api/inquiries/:id', async (req, res) => {
   try {
-    const { inquiry, role } = await authorizeInquiryAccess(req.params.id, { account: getOptionalAccount(req), token: req.query.token });
-    // Each side gets the OTHER party's contact details, now that an enquiry connects them.
-    let contact = null;
-    if (role === 'builder') {
-      contact = { name: inquiry.customerName, email: inquiry.customerEmail, phone: inquiry.customerPhone || null };
-    } else if (inquiry.builderAccountId) {
-      const b = await store.getAccountById(inquiry.builderAccountId);
-      if (b) contact = { name: inquiry.builderName, email: b.email, phone: b.phone || null };
+    let { inquiry, role } = await authorizeInquiryAccess(req.params.id, { account: getOptionalAccount(req), token: req.query.token });
+    // The builder opening a new request moves it to "reviewing".
+    if (role === 'builder' && inquiry.builderAccountId && inquiry.status === 'requested') {
+      inquiry = (await store.updateInquiry(inquiry.id, { status: 'reviewing', viewedAt: new Date().toISOString() })) || inquiry;
     }
-    res.json({ ok: true, inquiry: sanitizeInquiry(inquiry), viewerRole: role, contact });
+    // Each side gets the OTHER party's contact details only once contact is enabled.
+    let contact = null;
+    if (contactEnabled(inquiry)) {
+      if (role === 'builder') {
+        contact = { name: inquiry.customerName, email: inquiry.customerEmail, phone: inquiry.customerPhone || null };
+      } else if (inquiry.builderAccountId) {
+        const b = await store.getAccountById(inquiry.builderAccountId);
+        if (b) contact = { name: inquiry.builderName, email: b.email, phone: b.phone || null };
+      }
+    }
+    const msgs = await store.listMessages(inquiry.id);
+    res.json({
+      ok: true,
+      inquiry: sanitizeInquiry(inquiry, role),
+      viewerRole: role,
+      contact,
+      design: inquiry.design || null,
+      quotation: inquiry.quotation || null,
+      relationship: { stages: connectionStages(inquiry, msgs), messageCount: msgs.length },
+    });
+  } catch (e) {
+    res.status(e.status || 500).json({ error: e.message });
+  }
+});
+
+// Builder accepts or declines a project request. Accepting is what enables direct contact.
+app.post('/api/inquiries/:id/respond', async (req, res) => {
+  try {
+    const { inquiry, role } = await authorizeInquiryAccess(req.params.id, { account: getOptionalAccount(req), token: req.body?.token });
+    if (role !== 'builder') return res.status(403).json({ error: 'Only the builder can respond to a request.' });
+    const action = req.body?.action;
+    if (!['accept', 'decline'].includes(action)) return res.status(400).json({ error: 'action must be accept or decline.' });
+    if (!['requested', 'reviewing'].includes(inquiry.status)) return res.status(409).json({ error: 'This request has already been answered.' });
+    const updated = await store.updateInquiry(inquiry.id, { status: action === 'accept' ? 'accepted' : 'declined', respondedAt: new Date().toISOString() });
+    if (EMAIL_CONFIGURED) {
+      const link = `${appOrigin(req)}/?view=my-enquiry&inquiry=${inquiry.id}`;
+      sendEmail({
+        to: inquiry.customerEmail,
+        subject: `${inquiry.builderName || 'The builder'} ${action === 'accept' ? 'accepted' : 'declined'} your project request — BuildBridge AI`,
+        html: action === 'accept'
+          ? `<p><strong>${escapeHtml(inquiry.builderName || 'The builder')}</strong> accepted your project request. You can now see their contact details and message them.</p><p><a href="${link}">Open the project</a></p>`
+          : `<p><strong>${escapeHtml(inquiry.builderName || 'The builder')}</strong> is not able to take this project right now. You can send it to another builder.</p>`,
+      }).catch(() => {});
+    }
+    res.json({ ok: true, status: updated.status });
+  } catch (e) {
+    res.status(e.status || 500).json({ error: e.message });
+  }
+});
+
+// Builder sends (or revises) a quotation once the request is accepted.
+app.post('/api/inquiries/:id/quotation', async (req, res) => {
+  try {
+    const { inquiry, role } = await authorizeInquiryAccess(req.params.id, { account: getOptionalAccount(req), token: req.body?.token });
+    if (role !== 'builder') return res.status(403).json({ error: 'Only the builder can send a quotation.' });
+    if (!['accepted', 'quotation'].includes(inquiry.status)) return res.status(409).json({ error: 'Accept the request before sending a quotation.' });
+    const amount = Math.round(Number(req.body?.amount));
+    if (!Number.isFinite(amount) || amount <= 0 || amount > 1e11) return res.status(400).json({ error: 'Enter a valid quotation amount.' });
+    const weeks = req.body?.weeks ? Math.max(1, Math.min(520, Math.round(Number(req.body.weeks)))) : null;
+    const quotation = { amount, weeks, notes: String(req.body?.notes || '').slice(0, 1500), sentAt: new Date().toISOString() };
+    const updated = await store.updateInquiry(inquiry.id, { status: 'quotation', quotation });
+    res.json({ ok: true, status: updated.status, quotation });
+  } catch (e) {
+    res.status(e.status || 500).json({ error: e.message });
+  }
+});
+
+// Customer accepts the quotation (the project starts) or asks the builder to revise it.
+app.post('/api/inquiries/:id/quotation/respond', async (req, res) => {
+  try {
+    const { inquiry, role } = await authorizeInquiryAccess(req.params.id, { account: getOptionalAccount(req), token: null });
+    if (role !== 'customer') return res.status(403).json({ error: 'Only the customer can respond to a quotation.' });
+    if (inquiry.status !== 'quotation') return res.status(409).json({ error: 'There is no quotation to respond to.' });
+    const action = req.body?.action;
+    if (!['accept', 'decline'].includes(action)) return res.status(400).json({ error: 'action must be accept or decline.' });
+    const updated = await store.updateInquiry(inquiry.id, { status: action === 'accept' ? 'project' : 'accepted' });
+    res.json({ ok: true, status: updated.status });
   } catch (e) {
     res.status(e.status || 500).json({ error: e.message });
   }
@@ -1004,6 +1118,7 @@ app.post('/api/inquiries/:id/messages', aiRateLimit, async (req, res) => {
 
   try {
     const { inquiry, role } = await authorizeInquiryAccess(req.params.id, { account: getOptionalAccount(req), token });
+    if (!contactEnabled(inquiry)) return res.status(403).json({ error: inquiry.status === 'declined' ? 'The builder declined this request.' : 'Messaging opens once the builder accepts your request.' });
     const senderName = role === 'builder' ? (inquiry.builderName || 'Builder') : inquiry.customerName;
     const record = await store.saveMessage({ inquiryId: inquiry.id, senderRole: role, senderName, body: text });
 

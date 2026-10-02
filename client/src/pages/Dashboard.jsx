@@ -167,7 +167,7 @@ export default function Dashboard({ designs, onNavigate, onLoad, onViewProfile, 
         <div className="side-card">
           <div className="section-head" style={{ marginBottom: 8 }}>
             <h4 style={{ margin: 0 }}>Your Builder Connections</h4>
-            <button className="link-btn" onClick={() => onNavigate('my-projects')}>View All <ArrowRight size={13} /></button>
+            <button className="link-btn" onClick={() => onNavigate('connections')}>View All <ArrowRight size={13} /></button>
           </div>
           {connections === null ? <p className="panel-empty">Loading…</p> : connections.length === 0 ? (
             <p className="panel-empty">You have not contacted a builder yet. Pick one below and send your design — the conversation and their contact details will appear here.</p>

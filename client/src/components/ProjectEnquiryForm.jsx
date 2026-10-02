@@ -1,6 +1,6 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { LogIn, Mail, Send } from 'lucide-react';
-import { requestBuilderQuote } from '../lib/api.js';
+import { listDesigns, requestBuilderQuote } from '../lib/api.js';
 import { getAccount, isLoggedIn, updateStoredAccount } from '../lib/auth.js';
 import { areaOf, areaUnitOf, bedroomCountOf, floorCountOf, getPlotSize } from '../lib/layout.js';
 import { fmtINR } from '../lib/format.js';
@@ -42,6 +42,18 @@ export default function ProjectEnquiryForm({ design, builder, intent, onClose, o
   const [emailSent, setEmailSent] = useState(false);
   const [inquiryId, setInquiryId] = useState(null);
   const [error, setError] = useState('');
+  // Which design travels with the request: the one being viewed, or any saved design.
+  const [saved, setSaved] = useState([]);
+  const [attach, setAttach] = useState(design?.layout ? 'current' : 'none');
+  useEffect(() => {
+    if (!isLoggedIn()) return;
+    listDesigns().then((d) => {
+      const list = d.designs || [];
+      setSaved(list);
+      if (!design?.layout && list.length) setAttach(list[0].id);
+    }).catch(() => {});
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  const chosen = attach === 'current' ? design : saved.find((d) => d.id === attach) || null;
 
   function update(field) {
     return (e) => setForm((f) => ({ ...f, [field]: e.target.value }));
@@ -58,7 +70,8 @@ export default function ProjectEnquiryForm({ design, builder, intent, onClose, o
         customerPhone: form.phone.trim(),
         message: form.message.trim(),
         location: form.location.trim(),
-        designSummary: summarize(design),
+        designSummary: summarize(chosen),
+        design: chosen?.layout ? { layout: chosen.layout, cost: chosen.cost || null, requirements: chosen.requirements || null, title: chosen.title || chosen.layout.title } : undefined,
         builderId: builder?.id,
         builderName: builder?.name,
         intent: intent || 'General enquiry',
@@ -79,21 +92,24 @@ export default function ProjectEnquiryForm({ design, builder, intent, onClose, o
         <div className="notice notice--pending">
           <span className="notice-icon"><Mail size={22} strokeWidth={1.8} /></span>
           <div>
-            <h4>Enquiry sent{builder ? ` to ${builder.name}` : ''}</h4>
+            <h4>Project request sent{builder ? ` to ${builder.name}` : ''}</h4>
             <p>
-              {emailSent
-                ? "We've emailed you a confirmation, and the builder has been notified — they'll reach out shortly."
-                : "Your enquiry has been recorded. Email delivery isn't configured on this server yet, but it's saved for follow-up."}
+              {builder?.source === 'account'
+                ? 'The builder will review your design and accept or decline. Their email, phone and the project chat unlock for both of you once they accept. Track it in your Connection Center.'
+                : emailSent
+                  ? "We've emailed you a confirmation, and the builder has been notified — they'll reach out shortly."
+                  : "Your enquiry has been recorded. Email delivery isn't configured on this server yet, but it's saved for follow-up."}
             </p>
+            {builder?.source === 'account' && <button className="btn btn-navy btn-sm" onClick={() => onNavigate?.('connections')} style={{ marginTop: 8, marginRight: 8 }}>Open Connection Center</button>}
             {onClose && <button className="btn btn-ghost btn-sm" onClick={onClose} style={{ marginTop: 8 }}>Close</button>}
           </div>
         </div>
-        {inquiryId && <MessageThread inquiryId={inquiryId} viewerRole="customer" />}
+        {inquiryId && builder?.source !== 'account' && <MessageThread inquiryId={inquiryId} viewerRole="customer" />}
       </div>
     );
   }
 
-  const overviewRows = overview(design);
+  const overviewRows = overview(chosen);
 
   if (!isLoggedIn()) {
     return (
@@ -129,6 +145,17 @@ export default function ProjectEnquiryForm({ design, builder, intent, onClose, o
         </p>
       )}
 
+      {(saved.length > 0 || design?.layout) && (
+        <label className="field" style={{ marginBottom: 14 }}>Design attached to this request
+          <select value={attach} onChange={(e) => setAttach(e.target.value)}>
+            {design?.layout && <option value="current">The design I'm viewing</option>}
+            {saved.map((d) => <option key={d.id} value={d.id}>{d.title}</option>)}
+            <option value="none">No design — describe it in my message</option>
+          </select>
+          <span className="field-hint">The builder sees the 2D plan, the 3D model and the cost estimate.</span>
+        </label>
+      )}
+
       <h4>Your details</h4>
       <div className="quote-form-grid">
         <label className="field">Name
@@ -150,7 +177,7 @@ export default function ProjectEnquiryForm({ design, builder, intent, onClose, o
       {error && <p className="quote-form-error">{error}</p>}
       <div className="hero-actions">
         <button type="submit" className={'btn btn-primary btn-sm' + (state === 'sending' ? ' btn-loading' : '')} disabled={state === 'sending'}>
-          {state === 'sending' ? (<><span className="spinner" /> Sending…</>) : (<><Send size={14} /> Send Project Enquiry</>)}
+          {state === 'sending' ? (<><span className="spinner" /> Sending…</>) : (<><Send size={14} /> Send Project Request</>)}
         </button>
         {onClose && <button type="button" className="btn btn-ghost btn-sm" onClick={onClose} disabled={state === 'sending'}>Cancel</button>}
       </div>

@@ -9,11 +9,15 @@ import { SPECIALIZATIONS, SERVICE_LOCATIONS } from '../data/builders.js';
 // BuilderProfile assume a real priceRange/specializations/serviceLocations
 // exist, so leaving these optional would mean those components crash later
 // on a half-filled real-builder record.
+const SERVICES = ['Full construction', 'Civil engineering', 'Interior work', 'Renovation', 'Structural design', 'Project management'];
+
 export default function BuilderProfileSetup({ onDone, initial }) {
   const [name, setName] = useState(initial?.name || '');
   const [phone, setPhone] = useState(getAccount()?.phone || '');
   const [specializations, setSpecializations] = useState(initial?.specializations || []);
   const [serviceLocations, setServiceLocations] = useState(initial?.serviceLocations || []);
+  const [availability, setAvailability] = useState(initial?.availability || 'available');
+  const [services, setServices] = useState(initial?.services || []);
   const [about, setAbout] = useState(initial?.about || '');
   const [priceMin, setPriceMin] = useState(initial?.priceRange?.[0] ?? '');
   const [priceMax, setPriceMax] = useState(initial?.priceRange?.[1] ?? '');
@@ -40,6 +44,8 @@ export default function BuilderProfileSetup({ onDone, initial }) {
         specializations,
         serviceLocations,
         about: about.trim(),
+        availability,
+        services,
         priceRange: [Number(priceMin), Number(priceMax)],
         yearsExperience: Number(yearsExperience),
       });
@@ -79,6 +85,25 @@ export default function BuilderProfileSetup({ onDone, initial }) {
               ))}
             </div>
           </div>
+
+          <div className="field">
+            Services
+            <div className="checkbox-grid">
+              {SERVICES.map((sv) => (
+                <label key={sv} className="checkbox-pill">
+                  <input type="checkbox" checked={services.includes(sv)} onChange={() => toggle(services, setServices, sv)} disabled={state === 'sending'} /> {sv}
+                </label>
+              ))}
+            </div>
+          </div>
+
+          <label className="field">Availability
+            <select value={availability} onChange={(e) => setAvailability(e.target.value)} disabled={state === 'sending'}>
+              <option value="available">Available now</option>
+              <option value="busy">Currently busy</option>
+              <option value="booked">Fully booked</option>
+            </select>
+          </label>
 
           <div className="field">
             Service locations

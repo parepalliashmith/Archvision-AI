@@ -47,27 +47,20 @@ export default function Login({ defaultRole = 'customer', onSuccess }) {
   return (
     <div className="login-page">
       <div className="login-card">
-        <h2><KeyRound size={20} style={{ verticalAlign: '-3px', marginRight: 8 }} />Sign in</h2>
+        <h2><KeyRound size={20} style={{ verticalAlign: '-3px', marginRight: 8 }} />Sign in or create your account</h2>
         <p className="section-sub" style={{ marginTop: 0 }}>
           No passwords — we email you a one-time code instead.
         </p>
 
-        <div className="login-role-toggle">
-          <button
-            type="button"
-            className={'btn btn-sm' + (role === 'customer' ? ' btn-primary' : ' btn-ghost')}
-            onClick={() => setRole('customer')}
-            disabled={step === 'code'}
-          >
-            I'm a customer
+        <p className="login-question">How will you use BuildBridge AI?</p>
+        <div className="role-cards">
+          <button type="button" className={'role-card' + (role === 'customer' ? ' active' : '')} onClick={() => setRole('customer')} disabled={step === 'code'}>
+            <strong>I want to build a home</strong>
+            <small>Design a house, see it in 3D, estimate the cost and send it to a builder.</small>
           </button>
-          <button
-            type="button"
-            className={'btn btn-sm' + (role === 'builder' ? ' btn-primary' : ' btn-ghost')}
-            onClick={() => setRole('builder')}
-            disabled={step === 'code'}
-          >
-            I'm a builder
+          <button type="button" className={'role-card' + (role === 'builder' ? ' active' : '')} onClick={() => setRole('builder')} disabled={step === 'code'}>
+            <strong>I'm a Builder / Civil Engineer</strong>
+            <small>Create a profile and receive project requests with the customer's design.</small>
           </button>
         </div>
 

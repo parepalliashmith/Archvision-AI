@@ -83,6 +83,13 @@ async function init() {
       await pool.query('ALTER TABLE designs ADD COLUMN IF NOT EXISTS account_id TEXT');
       await pool.query('ALTER TABLE inquiries ADD COLUMN IF NOT EXISTS account_id TEXT');
       await pool.query('ALTER TABLE inquiries ADD COLUMN IF NOT EXISTS builder_account_id TEXT');
+      // Connection lifecycle (requested -> reviewing -> accepted/declined -> quotation -> project).
+      // Rows that existed before this column get 'accepted': their contact details were already shared.
+      await pool.query("ALTER TABLE inquiries ADD COLUMN IF NOT EXISTS status TEXT DEFAULT 'accepted'");
+      await pool.query('ALTER TABLE inquiries ADD COLUMN IF NOT EXISTS design JSONB');
+      await pool.query('ALTER TABLE inquiries ADD COLUMN IF NOT EXISTS quotation JSONB');
+      await pool.query('ALTER TABLE inquiries ADD COLUMN IF NOT EXISTS viewed_at TIMESTAMPTZ');
+      await pool.query('ALTER TABLE inquiries ADD COLUMN IF NOT EXISTS responded_at TIMESTAMPTZ');
       await pool.query(`
         CREATE TABLE IF NOT EXISTS accounts (
           id TEXT PRIMARY KEY,
@@ -93,6 +100,8 @@ async function init() {
       `);
       await pool.query('CREATE UNIQUE INDEX IF NOT EXISTS accounts_email_role_idx ON accounts (email, role)');
       await pool.query('ALTER TABLE accounts ADD COLUMN IF NOT EXISTS phone TEXT');
+      await pool.query('ALTER TABLE builder_profiles ADD COLUMN IF NOT EXISTS availability TEXT');
+      await pool.query('ALTER TABLE builder_profiles ADD COLUMN IF NOT EXISTS services JSONB');
       await pool.query(`
         CREATE TABLE IF NOT EXISTS builder_profiles (
           account_id TEXT PRIMARY KEY,
@@ -262,6 +271,11 @@ function rowToInquiryRecord(row) {
     intent: row.intent,
     emailSent: row.email_sent,
     builderToken: row.builder_token,
+    status: row.status || 'accepted',
+    design: row.design || null,
+    quotation: row.quotation || null,
+    viewedAt: row.viewed_at instanceof Date ? row.viewed_at.toISOString() : row.viewed_at || null,
+    respondedAt: row.responded_at instanceof Date ? row.responded_at.toISOString() : row.responded_at || null,
     createdAt: row.created_at instanceof Date ? row.created_at.toISOString() : row.created_at,
   };
 }
@@ -296,6 +310,8 @@ function rowToBuilderProfileRecord(row) {
     about: row.about,
     priceRange: row.price_range,
     yearsExperience: row.years_experience,
+    availability: row.availability || 'available',
+    services: row.services || [],
     updatedAt: row.updated_at instanceof Date ? row.updated_at.toISOString() : row.updated_at,
   };
 }
@@ -370,7 +386,7 @@ async function deleteDesign(id, accountId) {
 // "Get a Builder Quote" inquiries — a customer's contact details plus a
 // snapshot of the design they were looking at, kept even when email delivery
 // isn't configured so nothing is lost while the site owner sets that up.
-async function saveInquiry({ id, accountId, customerName, customerEmail, customerPhone, location, message, designSummary, builderId, builderName, builderAccountId, intent, builderToken, emailSent }) {
+async function saveInquiry({ id, accountId, customerName, customerEmail, customerPhone, location, message, designSummary, builderId, builderName, builderAccountId, intent, builderToken, emailSent, design }) {
   const record = {
     id: id || newId(),
     accountId: accountId || null,
@@ -386,18 +402,24 @@ async function saveInquiry({ id, accountId, customerName, customerEmail, custome
     intent: intent || null,
     builderToken: builderToken || null,
     emailSent: !!emailSent,
+    status: 'requested',
+    design: design || null,
+    quotation: null,
+    viewedAt: null,
+    respondedAt: null,
     createdAt: new Date().toISOString(),
   };
 
   if (usePg) {
     await pool.query(
-      `INSERT INTO inquiries (id, account_id, customer_name, customer_email, customer_phone, location, message, design_summary, builder_id, builder_name, intent, email_sent, created_at, builder_token, builder_account_id)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)`,
+      `INSERT INTO inquiries (id, account_id, customer_name, customer_email, customer_phone, location, message, design_summary, builder_id, builder_name, intent, email_sent, created_at, builder_token, builder_account_id, status, design)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)`,
       [
         record.id, record.accountId, record.customerName, record.customerEmail, record.customerPhone, record.location,
         record.message, record.designSummary ? JSON.stringify(record.designSummary) : null,
         record.builderId, record.builderName, record.intent,
         record.emailSent, record.createdAt, record.builderToken, record.builderAccountId,
+        record.status, record.design ? JSON.stringify(record.design) : null,
       ]
     );
     return record;
@@ -408,12 +430,32 @@ async function saveInquiry({ id, accountId, customerName, customerEmail, custome
   return record;
 }
 
+// Moves an inquiry through its lifecycle. Only these fields may change.
+const INQUIRY_PATCH_COLUMNS = { status: 'status', quotation: 'quotation', viewedAt: 'viewed_at', respondedAt: 'responded_at' };
+async function updateInquiry(id, patch) {
+  const keys = Object.keys(patch).filter((k) => k in INQUIRY_PATCH_COLUMNS);
+  if (!keys.length) return getInquiry(id);
+  if (usePg) {
+    const sets = keys.map((k, i) => `${INQUIRY_PATCH_COLUMNS[k]} = $${i + 2}`).join(', ');
+    const vals = keys.map((k) => (k === 'quotation' && patch[k] ? JSON.stringify(patch[k]) : patch[k]));
+    const res = await pool.query(`UPDATE inquiries SET ${sets} WHERE id = $1 RETURNING *`, [id, ...vals]);
+    return res.rows[0] ? rowToInquiryRecord(res.rows[0]) : null;
+  }
+  const list = readAllInquiries();
+  const idx = list.findIndex((i) => i.id === id);
+  if (idx < 0) return null;
+  keys.forEach((k) => { list[idx][k] = patch[k]; });
+  writeAllInquiries(list);
+  return { ...list[idx], status: list[idx].status || 'accepted' };
+}
+
 async function getInquiry(id) {
   if (usePg) {
     const res = await pool.query('SELECT * FROM inquiries WHERE id = $1', [id]);
     return res.rows[0] ? rowToInquiryRecord(res.rows[0]) : null;
   }
-  return readAllInquiries().find((i) => i.id === id) || null;
+  const found = readAllInquiries().find((i) => i.id === id);
+  return found ? { ...found, status: found.status || 'accepted' } : null;
 }
 
 async function listInquiriesByAccount(accountId) {
@@ -425,6 +467,7 @@ async function listInquiriesByAccount(accountId) {
     return res.rows.map(rowToInquiryRecord);
   }
   return readAllInquiries()
+    .map((i) => ({ ...i, status: i.status || 'accepted' }))
     .filter((i) => i.accountId === accountId)
     .sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1));
 }
@@ -438,6 +481,7 @@ async function listInquiriesForBuilderAccount(builderAccountId) {
     return res.rows.map(rowToInquiryRecord);
   }
   return readAllInquiries()
+    .map((i) => ({ ...i, status: i.status || 'accepted' }))
     .filter((i) => i.builderAccountId === builderAccountId)
     .sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1));
 }
@@ -543,7 +587,7 @@ async function getBuilderProfile(accountId) {
   return readAllBuilderProfiles().find((p) => p.accountId === accountId) || null;
 }
 
-async function saveBuilderProfile({ accountId, name, specializations, serviceLocations, about, priceRange, yearsExperience }) {
+async function saveBuilderProfile({ accountId, name, specializations, serviceLocations, about, priceRange, yearsExperience, availability, services }) {
   const record = {
     accountId,
     name,
@@ -552,18 +596,21 @@ async function saveBuilderProfile({ accountId, name, specializations, serviceLoc
     about: about || null,
     priceRange: priceRange || null,
     yearsExperience: yearsExperience || null,
+    availability: availability || 'available',
+    services: services || [],
     updatedAt: new Date().toISOString(),
   };
 
   if (usePg) {
     await pool.query(
-      `INSERT INTO builder_profiles (account_id, name, specializations, service_locations, about, price_range, years_experience, updated_at)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+      `INSERT INTO builder_profiles (account_id, name, specializations, service_locations, about, price_range, years_experience, updated_at, availability, services)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
        ON CONFLICT (account_id) DO UPDATE SET
-         name = $2, specializations = $3, service_locations = $4, about = $5, price_range = $6, years_experience = $7, updated_at = $8`,
+         name = $2, specializations = $3, service_locations = $4, about = $5, price_range = $6, years_experience = $7, updated_at = $8, availability = $9, services = $10`,
       [
         record.accountId, record.name, JSON.stringify(record.specializations), JSON.stringify(record.serviceLocations),
         record.about, record.priceRange ? JSON.stringify(record.priceRange) : null, record.yearsExperience, record.updatedAt,
+        record.availability, JSON.stringify(record.services),
       ]
     );
     return record;
@@ -581,7 +628,7 @@ async function saveBuilderProfile({ accountId, name, specializations, serviceLoc
 async function listBuilderAccounts() {
   if (usePg) {
     const res = await pool.query(`
-      SELECT a.id AS account_id, a.email, bp.name, bp.specializations, bp.service_locations, bp.about, bp.price_range, bp.years_experience
+      SELECT a.id AS account_id, a.email, bp.name, bp.specializations, bp.service_locations, bp.about, bp.price_range, bp.years_experience, bp.availability, bp.services
       FROM accounts a
       JOIN builder_profiles bp ON bp.account_id = a.id
       WHERE a.role = 'builder'
@@ -655,7 +702,7 @@ async function consumeOtpCode({ email, role, code }) {
 
 module.exports = {
   init, storageMode, saveDesign, listDesignsByAccount, getDesign, deleteDesign,
-  saveInquiry, getInquiry, listInquiriesByAccount, listInquiriesForBuilderAccount,
+  saveInquiry, updateInquiry, getInquiry, listInquiriesByAccount, listInquiriesForBuilderAccount,
   saveMessage, listMessages, newId,
   getAccountByEmail, getAccountById, saveAccount, updateAccountPhone,
   getBuilderProfile, saveBuilderProfile, listBuilderAccounts,
