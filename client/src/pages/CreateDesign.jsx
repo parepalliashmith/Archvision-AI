@@ -311,90 +311,116 @@ export default function CreateDesign({ loadedDesign, onSave, onFindBuilder, onNa
 
   return (
     <div className="create-design">
-      <form className="form-grid" onSubmit={handleGenerate}>
-        <label className="field">
-          <span>Plot width / frontage (ft)</span>
-          <input type="number" min="10" max="300" required value={form.plotWidth} onChange={(e) => update('plotWidth', e.target.value)} placeholder="30" />
-          <small className="field-hint">The side facing the road. Typical plots: 20-60 ft.</small>
-        </label>
-        <label className="field">
-          <span>Plot length / depth (ft)</span>
-          <input type="number" min="10" max="300" required value={form.plotLength} onChange={(e) => update('plotLength', e.target.value)} placeholder="40" />
-          <small className="field-hint">Front-to-back distance from the road.</small>
-        </label>
-        <label className="field">
-          <span>Budget (₹)</span>
-          <input type="number" min="100000" step="10000" value={form.budget} onChange={(e) => update('budget', e.target.value)} placeholder="2500000" />
-          <small className="field-hint">Optional — leave blank to skip the budget check.</small>
-        </label>
-        <label className="field">
-          <span>Bedrooms</span>
-          <input type="number" min="1" max="8" value={form.bedrooms} onChange={(e) => update('bedrooms', e.target.value)} placeholder="3" />
-        </label>
-        <label className="field">
-          <span>Bathrooms</span>
-          <input type="number" min="1" max="6" value={form.bathrooms} onChange={(e) => update('bathrooms', e.target.value)} placeholder="2" />
-        </label>
-        <label className="field">
-          <span>Floors</span>
-          <select value={form.floors} onChange={(e) => update('floors', e.target.value)}>
-            <option value="1">1 (single storey)</option>
-            <option value="2">2</option>
-            <option value="3">3</option>
-          </select>
-          <small className="field-hint">More floors fit more rooms on a small plot.</small>
-        </label>
-        <label className="field">
-          <span>Kitchen</span>
-          <select value={form.kitchen} onChange={(e) => update('kitchen', e.target.value)}>
-            <option value="">No preference</option>
-            {KITCHEN_OPTIONS.map((o) => <option key={o} value={o}>{o}</option>)}
-          </select>
-        </label>
-        <label className="field">
-          <span>Living room</span>
-          <select value={form.livingRoom} onChange={(e) => update('livingRoom', e.target.value)}>
-            <option value="">No preference</option>
-            {LIVING_OPTIONS.map((o) => <option key={o} value={o}>{o}</option>)}
-          </select>
-        </label>
-        <label className="field">
-          <span>House style</span>
-          <select value={form.style} onChange={(e) => update('style', e.target.value)}>
-            <option value="">Any</option>
-            {STYLE_OPTIONS.map((o) => <option key={o} value={o}>{o}</option>)}
-          </select>
-        </label>
-        <label className="field field-check">
-          <input type="checkbox" checked={form.parking} onChange={(e) => update('parking', e.target.checked)} />
-          <span>Needs covered parking (1 car)</span>
-        </label>
-        <label className="field field-check">
-          <input type="checkbox" checked={form.garden} onChange={(e) => update('garden', e.target.checked)} />
-          <span>Wants a garden / open space</span>
-        </label>
-        <label className="field field-check">
-          <input type="checkbox" checked={form.poojaRoom} onChange={(e) => update('poojaRoom', e.target.checked)} />
-          <span>Add a pooja room</span>
-        </label>
-        <label className="field field-check">
-          <input type="checkbox" checked={form.gym} onChange={(e) => update('gym', e.target.checked)} />
-          <span>Add a home gym</span>
-        </label>
-        <label className="field field-check">
-          <input type="checkbox" checked={form.storeRoom} onChange={(e) => update('storeRoom', e.target.checked)} />
-          <span>Add a store room</span>
-        </label>
-        <div className="field-wide">
+      <div className="gen-steps">
+        {['Requirements', 'Design Builder', '3D View', 'Connect'].map((label, i) => {
+          const now = activeDesign ? 3 : 1;
+          const state = i + 1 < now ? 'done' : i + 1 === now ? 'active' : '';
+          return (
+            <span key={label} className={'gen-step ' + state}>
+              <b>{i + 1 < now ? '✓' : i + 1}</b> {label}
+            </span>
+          );
+        })}
+      </div>
+
+      <div className="gen-shell">
+        <form className="gen-card" onSubmit={handleGenerate}>
+          <h2>Tell us about your dream home</h2>
+          <p className="gen-sub">Fill in your requirements and let AI create the perfect design for you.</p>
+
+          <div className="gen-grid">
+            <label className="gen-field">
+              <span>Plot width / frontage (ft)</span>
+              <input type="number" min="10" max="300" required value={form.plotWidth} onChange={(e) => update('plotWidth', e.target.value)} placeholder="30" />
+            </label>
+            <label className="gen-field">
+              <span>Plot length / depth (ft)</span>
+              <input type="number" min="10" max="300" required value={form.plotLength} onChange={(e) => update('plotLength', e.target.value)} placeholder="40" />
+            </label>
+            <label className="gen-field">
+              <span>Budget (₹)</span>
+              <input type="number" min="100000" step="10000" value={form.budget} onChange={(e) => update('budget', e.target.value)} placeholder="Optional, e.g. 2500000" />
+            </label>
+            <label className="gen-field">
+              <span>Bedrooms</span>
+              <input type="number" min="1" max="8" value={form.bedrooms} onChange={(e) => update('bedrooms', e.target.value)} placeholder="3" />
+            </label>
+            <label className="gen-field">
+              <span>Bathrooms</span>
+              <input type="number" min="1" max="6" value={form.bathrooms} onChange={(e) => update('bathrooms', e.target.value)} placeholder="2" />
+            </label>
+            <label className="gen-field">
+              <span>Floors</span>
+              <select value={form.floors} onChange={(e) => update('floors', e.target.value)}>
+                <option value="1">1 (single storey)</option>
+                <option value="2">2</option>
+                <option value="3">3</option>
+              </select>
+            </label>
+            <label className="gen-field">
+              <span>Style</span>
+              <select value={form.style} onChange={(e) => update('style', e.target.value)}>
+                <option value="">Any</option>
+                {STYLE_OPTIONS.map((o) => <option key={o} value={o}>{o}</option>)}
+              </select>
+            </label>
+            <label className="gen-field">
+              <span>Kitchen</span>
+              <select value={form.kitchen} onChange={(e) => update('kitchen', e.target.value)}>
+                <option value="">No preference</option>
+                {KITCHEN_OPTIONS.map((o) => <option key={o} value={o}>{o}</option>)}
+              </select>
+            </label>
+            <label className="gen-field">
+              <span>Living room</span>
+              <select value={form.livingRoom} onChange={(e) => update('livingRoom', e.target.value)}>
+                <option value="">No preference</option>
+                {LIVING_OPTIONS.map((o) => <option key={o} value={o}>{o}</option>)}
+              </select>
+            </label>
+          </div>
+
+          <p className="gen-label">Additional preferences <em>(optional)</em></p>
+          <div className="gen-chips">
+            {[
+              ['parking', 'Covered parking'],
+              ['garden', 'Garden / open space'],
+              ['poojaRoom', 'Pooja room'],
+              ['gym', 'Home gym'],
+              ['storeRoom', 'Store room'],
+            ].map(([key, label]) => (
+              <label key={key} className={'gen-chip' + (form[key] ? ' on' : '')}>
+                <input type="checkbox" checked={form[key]} onChange={(e) => update(key, e.target.checked)} /> {label}
+              </label>
+            ))}
+          </div>
+
           <button
-            className={'btn btn-primary' + (status?.kind === 'loading' ? ' btn-loading' : '')}
+            className={'gen-submit' + (status?.kind === 'loading' ? ' loading' : '')}
             type="submit"
             disabled={status?.kind === 'loading'}
           >
-            {status?.kind === 'loading' ? (<><span className="spinner" /> Generating…</>) : 'Generate Design'}
+            {status?.kind === 'loading' ? (<><span className="spinner" /> Generating…</>) : 'Generate Design →'}
           </button>
-        </div>
-      </form>
+        </form>
+
+        <aside className="gen-art" aria-hidden="true">
+          <svg viewBox="0 0 420 300" fill="none">
+            <rect x="0" y="236" width="420" height="64" fill="#0b1f1c" />
+            <rect x="70" y="120" width="190" height="116" fill="#e9eeec" />
+            <rect x="140" y="52" width="190" height="104" fill="#f5f7f6" />
+            <rect x="48" y="108" width="236" height="14" fill="#d8dedb" />
+            <rect x="118" y="40" width="236" height="14" fill="#d8dedb" />
+            <rect x="82" y="140" width="60" height="96" fill="#b5883a" />
+            <rect x="152" y="140" width="92" height="64" fill="#ffd58a" />
+            <rect x="170" y="72" width="140" height="64" fill="#ffd58a" />
+            <rect x="262" y="170" width="120" height="66" fill="#8a6a3a" />
+            <circle cx="386" cy="196" r="26" fill="#14463c" />
+            <circle cx="28" cy="206" r="20" fill="#14463c" />
+          </svg>
+          <div className="gen-art-text"><strong>Smart Design,</strong><span>Better Living</span></div>
+        </aside>
+      </div>
 
       {status?.kind === 'error' && (
         <div className="notice notice--error">

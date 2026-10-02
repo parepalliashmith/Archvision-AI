@@ -48,7 +48,7 @@ const PAGE_TITLES = {
 };
 
 // Pages that carry their own heading/hero, so the generic title bar is skipped.
-const OWN_HEADER_VIEWS = ['home', 'dashboard', 'how-it-works', 'pricing'];
+const OWN_HEADER_VIEWS = ['home', 'dashboard', 'how-it-works', 'pricing', 'create'];
 
 // No router library here (see App component below) — a builder's emailed
 // reply link and a customer's "new reply" email link both arrive as plain
