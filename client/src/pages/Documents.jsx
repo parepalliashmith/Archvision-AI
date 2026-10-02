@@ -9,7 +9,7 @@ function buildBrief(d) {
   const unit = areaUnitOf(d.layout);
   const lines = [
     `PROJECT BRIEF — ${d.title}`,
-    `Generated ${new Date().toLocaleDateString()} by ArchVision AI`,
+    `Generated ${new Date().toLocaleDateString()} by BuildBridge AI`,
     '',
     'OVERVIEW',
     `  Plot size:      ${plot.width} x ${plot.depth} ${plot.unit}`,

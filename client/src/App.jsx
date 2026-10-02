@@ -255,7 +255,6 @@ export default function App() {
       )}
       {view === 'dashboard' && (
         <Dashboard
-          account={account}
           designs={designs}
           onNavigate={navigate}
           onLoad={handleLoad}
@@ -355,7 +354,7 @@ export default function App() {
   );
 
   return (
-    <div className="app-shell">
+    <div className={"app-shell" + (withSidebar ? " has-sidebar" : "")}>
       <Navbar view={view} onNavigate={navigate} savedCount={designs.length} account={account} onLogout={handleLogout} />
       <main className={'main' + (bleed ? ' main--bleed' : '')}>
         {withSidebar ? (

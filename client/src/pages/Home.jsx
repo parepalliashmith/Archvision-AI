@@ -55,10 +55,10 @@ export default function Home({ onNavigate, savedCount, onSaveSample, onViewProfi
         <div className="container home-hero-grid home-hero-grid--center">
           <div className="home-hero-copy">
             <motion.span className="pill-tag" initial={reduceMotion ? false : { opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.5 }}>
-              AI-powered home design &amp; builder connect
+              Built with the right people
             </motion.span>
             <motion.h1 className="hero-title" initial={reduceMotion ? false : { opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.6, delay: 0.05 }}>
-              From Dream to<br />Your New Home
+              Your Dream Home,<br />Designed with AI.
             </motion.h1>
             <motion.p className="hero-sub" initial={reduceMotion ? false : { opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.6, delay: 0.1 }}>
               Design your home with AI, visualize it in 3D, get an estimated cost, and connect with

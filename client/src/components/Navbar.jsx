@@ -70,7 +70,7 @@ export default function Navbar({ view, onNavigate, savedCount, account, onLogout
         <button className="navbar-brand" onClick={() => go('home')}>
           <span className="navbar-brand-mark"><Home size={20} strokeWidth={2} /></span>
           <span className="navbar-brand-text">
-            <span className="navbar-brand-name">ArchVision <span className="accent">AI</span></span>
+            <span className="navbar-brand-name">BuildBridge <span className="accent">AI</span></span>
             <span className="navbar-brand-tag">Design • Visualize • Build</span>
           </span>
         </button>
