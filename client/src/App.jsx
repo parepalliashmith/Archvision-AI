@@ -260,6 +260,7 @@ export default function App() {
           onLoad={handleLoad}
           onViewProfile={handleViewBuilderProfile}
           onContact={handleContactBuilder}
+          onOpenInquiry={(id) => { setSelectedInquiryId(id); setView('my-enquiry'); }}
         />
       )}
       {view === 'how-it-works' && <HowItWorks onNavigate={navigate} />}

@@ -1158,3 +1158,47 @@ img { max-width: 100%; }
 .gen-art svg { width: 100%; height: auto; display: block; }
 .gen-art-text { position: absolute; right: 24px; bottom: 22px; display: flex; flex-direction: column; text-align: right; color: #fff; font-family: var(--font-serif); font-size: 1.3rem; line-height: 1.2; }
 @media (max-width: 900px) { .gen-shell { grid-template-columns: 1fr; } .gen-art { display: none; } .gen-card { padding: 24px 18px; } .gen-grid { grid-template-columns: 1fr; } }
+
+/* ---- Customer <-> builder relationship ---- */
+.rel-line { list-style: none; display: flex; gap: 0; margin: 10px 0 12px; padding: 0; }
+.rel-line li { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 5px; position: relative; font-size: 0.72rem; color: var(--ink-soft); text-align: center; }
+.rel-line li::before { content: ''; position: absolute; top: 11px; left: -50%; width: 100%; height: 2px; background: var(--border-strong); z-index: 0; }
+.rel-line li:first-child::before { display: none; }
+.rel-line li.done::before { background: var(--teal); }
+.rel-dot { position: relative; z-index: 1; width: 22px; height: 22px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; font-size: 0.68rem; font-weight: 700; background: var(--surface); border: 2px solid var(--border-strong); color: var(--ink-soft); }
+.rel-line li.done .rel-dot { background: var(--teal); border-color: var(--teal); color: #fff; }
+.rel-line li.current .rel-dot { border-color: var(--teal); color: var(--teal); background: var(--bg-alt); }
+.rel-line li.done, .rel-line li.current { color: var(--ink); font-weight: 600; }
+.rel-line--compact { margin: 6px 0 8px; } .rel-line--compact .rel-label { font-size: 0.64rem; }
+.rel-parties { display: flex; align-items: center; gap: 8px; margin-bottom: 4px; }
+.rel-party { padding: 5px 12px; border-radius: 999px; font-size: 0.8rem; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 44%; }
+.rel-party--you { background: #e6f1ee; color: #14463c; border: 1px solid #14463c; }
+.rel-party--builder { background: #fdf3dc; color: #7a5a1c; border: 1px solid #b5883a; }
+.rel-link { flex: 1; height: 0; border-top: 2px dashed var(--teal); position: relative; min-width: 24px; }
+.rel-link::after { content: '⇄'; position: absolute; left: 50%; top: -12px; transform: translateX(-50%); background: var(--bg-alt); padding: 0 4px; color: var(--teal); font-size: 0.9rem; }
+.rel-last { font-size: 0.78rem; color: var(--ink-soft); margin: 4px 0 0; }
+.project-card--rel { flex-direction: column; gap: 6px; }
+.project-card-side--row { flex-direction: row; align-items: center; gap: 12px; flex-wrap: wrap; }
+.status-pill--new { background: #fdecc8; color: #8a5a00; }
+.connection-row { display: flex; flex-direction: column; gap: 3px; text-align: left; width: 100%; padding: 10px 0; border: none; border-top: 1px solid var(--border); background: none; cursor: pointer; font: inherit; color: var(--ink); }
+.connection-row:hover { background: var(--surface); }
+.connection-head { display: flex; justify-content: space-between; gap: 8px; font-size: 0.84rem; }
+.connection-head em { font-style: normal; font-size: 0.7rem; color: var(--teal); font-weight: 700; }
+.connection-row small { font-size: 0.72rem; color: var(--ink-soft); }
+.bridge-section { margin: 40px 0 8px; }
+.bridge-grid { display: grid; grid-template-columns: 1fr 200px 1fr; gap: 16px; align-items: stretch; }
+.bridge-role { padding: 22px; border-radius: 18px; border: 2px solid; }
+.bridge-role--customer { background: #e6f1ee; border-color: #14463c; } .bridge-role--builder { background: #fdf3dc; border-color: #b5883a; }
+.bridge-badge { display: inline-block; padding: 4px 14px; border-radius: 999px; font-size: 0.78rem; font-weight: 700; background: #14463c; color: #fff; margin-bottom: 10px; }
+.bridge-role--builder .bridge-badge { background: #b5883a; }
+.bridge-role ul { margin: 0; padding-left: 18px; font-size: 0.9rem; color: #14201c; } .bridge-role li { margin: 6px 0; }
+.bridge-mid { display: flex; flex-direction: column; justify-content: center; align-items: center; text-align: center; gap: 6px; color: var(--ink); }
+.bridge-arrow { font-size: 2.4rem; color: var(--teal); line-height: 1; } .bridge-mid small { color: var(--ink-soft); font-size: 0.74rem; }
+@media (max-width: 900px) { .bridge-grid { grid-template-columns: 1fr; } .bridge-mid { padding: 6px 0; } }
+
+.bridge-section { margin-bottom: 30px; }
+
+.project-card--rel { justify-content: flex-start; flex-wrap: nowrap; }
+.project-card--rel .project-card-main { flex: 0 0 auto; }
+
+.link-btn { white-space: nowrap; }

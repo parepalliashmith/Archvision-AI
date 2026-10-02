@@ -38,7 +38,7 @@ const RESEND_API_KEY = process.env.RESEND_API_KEY || '';
 const BREVO_API_KEY = process.env.BREVO_API_KEY || '';
 const EMAIL_CONFIGURED = !!(RESEND_API_KEY || BREVO_API_KEY);
 const BUILDER_EMAIL = process.env.BUILDER_EMAIL || 'abhiparepalli@gmail.com';
-const EMAIL_FROM = process.env.EMAIL_FROM || 'ArchVision AI <onboarding@resend.dev>';
+const EMAIL_FROM = process.env.EMAIL_FROM || 'BuildBridge AI <onboarding@resend.dev>';
 
 // The React client (client/) runs on Vite's own dev server (port 5173) during
 // development, separate from this API's port — so those requests are cross-origin.
@@ -368,7 +368,7 @@ async function sendEmail({ to, subject, html }) {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'api-key': BREVO_API_KEY },
       body: JSON.stringify({
-        sender: { email: EMAIL_FROM.replace(/^.*<(.+)>$/, '$1'), name: 'ArchVision AI' },
+        sender: { email: EMAIL_FROM.replace(/^.*<(.+)>$/, '$1'), name: 'BuildBridge AI' },
         to: [{ email: to }],
         subject, htmlContent: html,
       }),
@@ -722,7 +722,7 @@ app.post('/api/auth/request-otp', aiRateLimit, async (req, res) => {
   if (EMAIL_CONFIGURED) {
     await sendEmail({
       to: email,
-      subject: `Your ArchVision AI login code: ${code}`,
+      subject: `Your BuildBridge AI login code: ${code}`,
       html: `<p>Your one-time login code is:</p><h2 style="letter-spacing:4px;">${code}</h2><p>This code expires in 10 minutes. If you didn't request this, you can ignore this email.</p>`,
     }).catch(() => {});
   } else {
@@ -879,7 +879,7 @@ app.post('/api/inquiries', requireAuth, aiRateLimit, async (req, res) => {
       to: builderTo,
       subject: `New house-design inquiry from ${name}`,
       html: `
-        <h2>New inquiry via ArchVision AI</h2>
+        <h2>New inquiry via BuildBridge AI</h2>
         ${builderLine}${intentLine}
         <p><strong>Name:</strong> ${safeName}<br/>
         <strong>Email:</strong> ${escapeHtml(email)}<br/>
@@ -887,13 +887,13 @@ app.post('/api/inquiries', requireAuth, aiRateLimit, async (req, res) => {
         <strong>Phone:</strong> ${escapeHtml(phone)}</p>
         ${safeMessage ? `<p><strong>Message:</strong><br/>${safeMessage}</p>` : ''}
         ${summaryLines ? `<h3>Design summary</h3><ul>${summaryLines}</ul>` : ''}
-        <p><a href="${replyLink}">Reply to ${safeName} in ArchVision AI</a></p>
+        <p><a href="${replyLink}">Reply to ${safeName} in BuildBridge AI</a></p>
       `.trim(),
     }).catch(() => ({ sent: false }));
 
     const customerResult = await sendEmail({
       to: email,
-      subject: 'We received your house-design request — ArchVision AI',
+      subject: 'We received your house-design request — BuildBridge AI',
       html: `
         <h2>Thanks, ${safeName}!</h2>
         <p>We've received your request${builderName ? ` for ${escapeHtml(builderName)}` : ''} and a builder will reach out to you shortly to discuss your design.</p>
@@ -936,16 +936,35 @@ function sanitizeInquiry(inquiry) {
 }
 
 // A customer's own inquiries, for the "My Enquiries" list page.
+// Adds the customer <-> builder relationship summary to each inquiry: how far the
+// conversation has got (used for the progress timeline on both dashboards).
+async function withRelationship(inquiries) {
+  return Promise.all(inquiries.map(async (inq) => {
+    const msgs = await store.listMessages(inq.id);
+    const last = msgs[msgs.length - 1] || null;
+    return {
+      ...sanitizeInquiry(inq),
+      relationship: {
+        designShared: !!inq.designSummary,
+        builderReplied: msgs.some((m) => m.senderRole === 'builder'),
+        contactShared: !!inq.builderAccountId,
+        messageCount: msgs.length,
+        lastMessage: last ? { senderRole: last.senderRole, senderName: last.senderName, body: String(last.body).slice(0, 140), createdAt: last.createdAt } : null,
+      },
+    };
+  }));
+}
+
 app.get('/api/inquiries', requireAuth, async (req, res) => {
   const inquiries = await store.listInquiriesByAccount(req.account.accountId);
-  res.json({ ok: true, inquiries: inquiries.map(sanitizeInquiry) });
+  res.json({ ok: true, inquiries: await withRelationship(inquiries) });
 });
 
 // A builder's own inquiries, for their dashboard.
 app.get('/api/builder/inquiries', requireAuth, async (req, res) => {
   if (req.account.role !== 'builder') return res.status(403).json({ error: 'Builder account required.' });
   const inquiries = await store.listInquiriesForBuilderAccount(req.account.accountId);
-  res.json({ ok: true, inquiries: inquiries.map(sanitizeInquiry) });
+  res.json({ ok: true, inquiries: await withRelationship(inquiries) });
 });
 
 // Single inquiry, for context on the builder-reply page or a customer's thread view.
@@ -995,14 +1014,14 @@ app.post('/api/inquiries/:id/messages', aiRateLimit, async (req, res) => {
         const contactLine = inquiry.customerPhone ? `<p>Phone: ${escapeHtml(inquiry.customerPhone)} &middot; Email: ${escapeHtml(inquiry.customerEmail)}</p>` : '';
         builderInbox(inquiry.builderAccountId).then((to) => sendEmail({
           to,
-          subject: `New reply from ${senderName} — ArchVision AI`,
+          subject: `New reply from ${senderName} — BuildBridge AI`,
           html: `<p><strong>${escapeHtml(senderName)}</strong> replied:</p><p>${escapeHtml(text)}</p>${contactLine}<p><a href="${link}">Open the conversation</a></p>`,
         })).catch(() => {});
       } else {
         const link = `${origin}/?view=my-enquiry&inquiry=${inquiry.id}`;
         sendEmail({
           to: inquiry.customerEmail,
-          subject: `New reply${inquiry.builderName ? ` from ${inquiry.builderName}` : ''} — ArchVision AI`,
+          subject: `New reply${inquiry.builderName ? ` from ${inquiry.builderName}` : ''} — BuildBridge AI`,
           html: `<p><strong>${escapeHtml(senderName)}</strong> replied:</p><p>${escapeHtml(text)}</p><p><a href="${link}">Open the conversation</a></p>`,
         }).catch(() => {});
       }

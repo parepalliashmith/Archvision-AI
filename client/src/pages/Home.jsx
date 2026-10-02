@@ -105,6 +105,35 @@ export default function Home({ onNavigate, savedCount, onSaveSample, onViewProfi
           ))}
         </section>
 
+        <section className="bridge-section">
+          <div className="section-head"><div><h3>How customers and builders connect</h3><p>One verified link between the person who wants a house and the person who can build it</p></div></div>
+          <div className="bridge-grid">
+            <div className="bridge-role bridge-role--customer">
+              <span className="bridge-badge">Customer</span>
+              <ul>
+                <li>Enters plot, rooms and budget</li>
+                <li>Gets a 2D / 3D design and cost</li>
+                <li>Signs in with an emailed code and adds a phone number</li>
+                <li>Sends the design to a chosen builder</li>
+              </ul>
+            </div>
+            <div className="bridge-mid">
+              <span className="bridge-arrow">⇄</span>
+              <strong>Enquiry with the design attached</strong>
+              <small>Messages in the app · Call · WhatsApp · Email</small>
+            </div>
+            <div className="bridge-role bridge-role--builder">
+              <span className="bridge-badge">Builder / Civil engineer</span>
+              <ul>
+                <li>Registers with profile and phone number</li>
+                <li>Receives plot, area, floors, style and budget</li>
+                <li>Replies in the app or by phone</li>
+                <li>Sees the customer's contact after the enquiry</li>
+              </ul>
+            </div>
+          </div>
+        </section>
+
         <section className="connect-banner connect-banner--wide">
           <div>
             <h3>Connect with Builders &amp; Civil Engineers</h3>

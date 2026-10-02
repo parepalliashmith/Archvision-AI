@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useState } from 'react';
 import { motion } from 'framer-motion';
 import { ArrowRight, BadgeCheck, Calculator, Box, FileUp, HardHat, LifeBuoy, PencilRuler, Star, UserSearch, Sparkles, Layers, Users } from 'lucide-react';
-import { listBuilders } from '../lib/api.js';
+import { listBuilders, listMyInquiries } from '../lib/api.js';
+import RelationshipTimeline, { relationshipStatus } from '../components/RelationshipTimeline.jsx';
 import { areaOf, areaUnitOf, bedroomCountOf, floorCountOf, getPlotSize } from '../lib/layout.js';
 import { fmtINR } from '../lib/format.js';
 import { BUILDERS } from '../data/builders.js';
@@ -29,10 +30,12 @@ const initials = (name) => name.split(' ').slice(0, 2).map((w) => w[0]).join('')
 // Customer home once signed in. Everything shown comes from the account's real data
 // (saved designs and their costs); sections with nothing to show say so instead of
 // inventing sample content.
-export default function Dashboard({ designs, onNavigate, onLoad, onViewProfile, onContact }) {
+export default function Dashboard({ designs, onNavigate, onLoad, onViewProfile, onContact, onOpenInquiry }) {
   const [realBuilders, setRealBuilders] = useState([]);
+  const [connections, setConnections] = useState(null);
 
   useEffect(() => {
+    listMyInquiries().then((d) => setConnections(d.inquiries || [])).catch(() => setConnections([]));
     listBuilders().then((d) => setRealBuilders((d.builders || []).map(normalizeRealBuilder))).catch(() => {});
   }, []);
 
@@ -159,6 +162,22 @@ export default function Dashboard({ designs, onNavigate, onLoad, onViewProfile, 
               </div>
             </>
           ) : <p className="panel-empty">No project yet.</p>}
+        </div>
+
+        <div className="side-card">
+          <div className="section-head" style={{ marginBottom: 8 }}>
+            <h4 style={{ margin: 0 }}>Your Builder Connections</h4>
+            <button className="link-btn" onClick={() => onNavigate('my-projects')}>View All <ArrowRight size={13} /></button>
+          </div>
+          {connections === null ? <p className="panel-empty">Loading…</p> : connections.length === 0 ? (
+            <p className="panel-empty">You have not contacted a builder yet. Pick one below and send your design — the conversation and their contact details will appear here.</p>
+          ) : connections.slice(0, 3).map((c) => (
+            <button key={c.id} className="connection-row" onClick={() => onOpenInquiry?.(c.id)}>
+              <span className="connection-head"><strong>{c.builderName || 'Builder'}</strong><em>{relationshipStatus(c.relationship, 'customer')}</em></span>
+              <RelationshipTimeline rel={c.relationship} compact />
+              {c.relationship?.lastMessage && <small>{c.relationship.lastMessage.senderRole === 'builder' ? 'Builder' : 'You'}: {c.relationship.lastMessage.body}</small>}
+            </button>
+          ))}
         </div>
 
         <div className="side-card help-card">
