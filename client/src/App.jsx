@@ -23,8 +23,10 @@ import Connections from './pages/MyProjects.jsx';
 import Documents from './pages/Documents.jsx';
 import Profile from './pages/Profile.jsx';
 import Settings from './pages/Settings.jsx';
-import { getAccount, clearSession } from './lib/auth.js';
-import { listDesigns, saveDesign, deleteDesign, checkHealth } from './lib/api.js';
+import BuilderVerification from './pages/BuilderVerification.jsx';
+import AdminVerifications from './pages/AdminVerifications.jsx';
+import { getAccount, clearSession, getToken, updateStoredAccount } from './lib/auth.js';
+import { listDesigns, saveDesign, deleteDesign, checkHealth, getMe } from './lib/api.js';
 
 const PAGE_TITLES = {
   home: 'Home',
@@ -43,6 +45,8 @@ const PAGE_TITLES = {
   'builder-active': 'Active Projects',
   'builder-messages': 'Messages',
   'builder-quotations': 'Quotations',
+  'builder-verification': 'Verification',
+  'admin-verifications': 'Builder Verifications',
   login: 'Sign In',
   'builder-profile-setup': 'Complete Your Profile',
   'builder-dashboard': 'Builder Overview',
@@ -77,7 +81,8 @@ function initialViewFromLocation() {
 // rather than duplicating that check inside every page component.
 const CUSTOMER_VIEWS = ['dashboard', 'my-designs', 'compare', 'my-enquiries', 'my-enquiry', 'my-projects', 'connections', 'documents'];
 const ANY_ACCOUNT_VIEWS = ['profile', 'settings'];
-const BUILDER_VIEWS = ['builder-dashboard', 'builder-requests', 'builder-active', 'builder-messages', 'builder-quotations'];
+const ADMIN_VIEWS = ['admin-verifications'];
+const BUILDER_VIEWS = ['builder-verification', 'builder-dashboard', 'builder-requests', 'builder-active', 'builder-messages', 'builder-quotations'];
 
 // 'upload' and 'create' badges depend on whether the server actually has
 // GEMINI_API_KEY set — checked once via /api/health (see aiConfigured state
@@ -100,7 +105,7 @@ function pageBadges(aiConfigured) {
     'builder-reply': 'Per-inquiry access link — for curated demo builders without an account',
     'my-enquiries': 'Signed-in account required — email-OTP login, no passwords',
     'my-enquiry': 'Signed-in account required — email-OTP login, no passwords',
-    login: 'Email-OTP login — no passwords, no accounts stored anywhere else',
+    login: 'Email + password, verified by one-time codes',
     'builder-profile-setup': 'One-time setup for a new builder account',
     'builder-dashboard': 'Your requests, projects and quotations at a glance',
     connections: 'Every project you have sent to a builder, and where it stands',
@@ -108,6 +113,8 @@ function pageBadges(aiConfigured) {
     'builder-active': 'Requests you accepted and projects in progress',
     'builder-messages': 'Conversations with your customers',
     'builder-quotations': 'Quotations you sent and their answers',
+    'builder-verification': 'Documents reviewed by our team before the Verified badge appears',
+    'admin-verifications': 'Review builder documents and approve or reject',
     'my-projects': 'Enquiries you have sent to builders',
     documents: 'Project briefs for your saved designs',
     profile: 'Your account and contact details',
@@ -166,6 +173,12 @@ export default function App() {
   }
 
   useEffect(() => { window.scrollTo(0, 0); }, [view]);
+
+  // Refresh the cached account (verification flags can change on the server).
+  useEffect(() => {
+    if (!getToken()) return;
+    getMe().then((d) => { if (d.account) { updateStoredAccount(d.account); setAccount((a) => (a ? { ...a, ...d.account } : a)); } }).catch(() => {});
+  }, []);
 
   useEffect(() => {
     checkHealth().then((data) => setAiConfigured(!!data.configured)).catch(() => {});
@@ -232,7 +245,7 @@ export default function App() {
       setView('builder-profile-setup');
     } else {
       const back = pendingView && pendingView !== 'home' && pendingView !== 'login' ? pendingView : 'dashboard';
-      setView(newAccount.role === 'builder' ? 'builder-dashboard' : back);
+      setView(newAccount.role === 'builder' ? 'builder-dashboard' : newAccount.role === 'admin' ? 'admin-verifications' : back);
     }
   }
 
@@ -245,7 +258,8 @@ export default function App() {
 
   const needsCustomerLogin = (CUSTOMER_VIEWS.includes(view) && (!account || account.role !== 'customer'))
     || (ANY_ACCOUNT_VIEWS.includes(view) && !account);
-  const needsBuilderLogin = BUILDER_VIEWS.includes(view) && (!account || account.role !== 'builder');
+  const needsBuilderLogin = (BUILDER_VIEWS.includes(view) && (!account || account.role !== 'builder'))
+    || (ADMIN_VIEWS.includes(view) && (!account || account.role !== 'admin'));
 
   const bleed = view === 'home';
   const withSidebar = !['login', 'builder-reply', 'builder-profile-setup'].includes(view);
@@ -330,7 +344,7 @@ export default function App() {
         />
       )}
       {view === 'my-enquiry' && (
-        <ProjectWorkspace inquiryId={selectedInquiryId} viewer="customer" onBack={() => setView('connections')} backLabel="Back to Connection Center" />
+        <ProjectWorkspace inquiryId={selectedInquiryId} viewer="customer" onBack={() => setView('connections')} backLabel="Back to Connection Center" onNavigate={navigate} />
       )}
       {(view === 'connections' || view === 'my-projects') && (
         <Connections onOpen={(id) => { setSelectedInquiryId(id); setView('my-enquiry'); }} onNavigate={navigate} />
@@ -341,6 +355,7 @@ export default function App() {
           account={account}
           onAccountChange={setAccount}
           onEditBuilder={(bp) => { setEditingBuilderProfile(bp); setView('builder-profile-setup'); }}
+          onNavigate={navigate}
         />
       )}
       {view === 'settings' && <Settings account={account} onLogout={handleLogout} />}
@@ -348,9 +363,11 @@ export default function App() {
         <Login defaultRole={pendingView === 'builder-dashboard' ? 'builder' : 'customer'} onSuccess={handleLoginSuccess} />
       )}
       {view === 'builder-profile-setup' && (
-        <BuilderProfileSetup initial={editingBuilderProfile} onDone={() => { setEditingBuilderProfile(null); setView('builder-dashboard'); }} />
+        <BuilderProfileSetup initial={editingBuilderProfile || { name: account?.company, yearsExperience: account?.yearsExperience }} onDone={() => { setEditingBuilderProfile(null); setView('builder-verification'); }} />
       )}
-      {view === 'builder-dashboard' && <BuilderDashboard mode="overview" />}
+      {view === 'builder-verification' && <BuilderVerification onNavigate={navigate} />}
+      {view === 'admin-verifications' && <AdminVerifications />}
+      {view === 'builder-dashboard' && <BuilderDashboard mode="overview" onNavigate={navigate} />}
       {view === 'builder-requests' && <BuilderDashboard mode="requests" />}
       {view === 'builder-active' && <BuilderDashboard mode="active" />}
       {view === 'builder-messages' && <BuilderDashboard mode="messages" />}

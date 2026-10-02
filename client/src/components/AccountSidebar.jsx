@@ -1,4 +1,4 @@
-import { Box, Handshake, Briefcase, CircleDollarSign, HelpCircle, LogIn, PencilRuler, Calculator, FileText, FolderOpen, Home, Inbox, LayoutDashboard, MessageCircle, Settings, User, UserSearch } from 'lucide-react';
+import { BadgeCheck, Box, Handshake, Briefcase, CircleDollarSign, HelpCircle, LogIn, PencilRuler, Calculator, FileText, FolderOpen, Home, Inbox, LayoutDashboard, MessageCircle, Settings, User, UserSearch } from 'lucide-react';
 
 const CUSTOMER_ITEMS = [
   { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
@@ -17,6 +17,7 @@ const BUILDER_ITEMS = [
   { id: 'builder-active', label: 'Active Projects', icon: Briefcase },
   { id: 'builder-messages', label: 'Messages', icon: MessageCircle },
   { id: 'builder-quotations', label: 'Quotations', icon: FileText },
+  { id: 'builder-verification', label: 'Verification', icon: BadgeCheck },
   { id: 'profile', label: 'Profile', icon: User },
   { id: 'settings', label: 'Settings', icon: Settings },
 ];
@@ -31,6 +32,12 @@ const GUEST_ITEMS = [
   { id: 'login', label: 'Sign In', icon: LogIn },
 ];
 
+const ADMIN_ITEMS = [
+  { id: 'admin-verifications', label: 'Verifications', icon: BadgeCheck },
+  { id: 'profile', label: 'Profile', icon: User },
+  { id: 'settings', label: 'Settings', icon: Settings },
+];
+
 export const SIDEBAR_VIEWS = [
   'dashboard', 'my-designs', 'compare', 'find-builders', 'builder-profile', 'my-enquiries', 'my-enquiry',
   'my-projects', 'cost-estimator', 'documents', 'profile', 'settings', 'builder-dashboard',
@@ -39,7 +46,7 @@ export const SIDEBAR_VIEWS = [
 // Dark left rail for the signed-in area: brand on top, navigation, promo card at the
 // bottom. On phones it collapses into a horizontally scrolling pill bar.
 export default function AccountSidebar({ view, account, onNavigate }) {
-  const items = !account ? GUEST_ITEMS : account.role === 'builder' ? BUILDER_ITEMS : CUSTOMER_ITEMS;
+  const items = !account ? GUEST_ITEMS : account.role === 'builder' ? BUILDER_ITEMS : account.role === 'admin' ? ADMIN_ITEMS : CUSTOMER_ITEMS;
   return (
     <aside className={'account-sidebar' + (account ? '' : ' account-sidebar--guest')}>
       <button className="sidebar-brand" onClick={() => onNavigate('home')}>
@@ -60,7 +67,7 @@ export default function AccountSidebar({ view, account, onNavigate }) {
           );
         })}
       </nav>
-      {account?.role !== 'builder' && (
+      {(!account || account.role === 'customer') && (
         <div className="sidebar-promo">
           <strong>Turn Your Dream Home Into Reality</strong>
           <p>AI-powered designs, 3D visualizations and trusted builders — all in one place.</p>

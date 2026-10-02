@@ -7,9 +7,10 @@ function authHeaders() {
 }
 
 async function asJson(res) {
-  const data = await res.json();
-  if (res.status === 401) clearSession();
-  if (!res.ok) throw new Error(data.error || 'Something went wrong.');
+  const data = await res.json().catch(() => ({}));
+  // Only an expired/invalid SESSION signs the user out — a wrong password or code is also a 401.
+  if (res.status === 401 && /log in to continue|no longer exists/i.test(data.error || '')) clearSession();
+  if (!res.ok) throw Object.assign(new Error(data.error || 'Something went wrong.'), { code: data.code, status: res.status, data });
   return data;
 }
 
@@ -155,21 +156,28 @@ export function sendMessage({ inquiryId, token, body }) {
   }).then(asJson);
 }
 
-// Email-OTP login — see server.js's /api/auth/* routes.
-export function requestOtp({ email, role }) {
-  return fetch(`${API_BASE}/api/auth/request-otp`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ email, role }),
-  }).then(asJson);
-}
+// Accounts: email + password, email-code verification, phone-code verification (see server.js /api/auth/*).
+const postPublic = (path, body) => fetch(API_BASE + path, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }).then(asJson);
+const postAuthed = (path, body) => fetch(API_BASE + path, { method: 'POST', headers: { 'Content-Type': 'application/json', ...authHeaders() }, body: JSON.stringify(body) }).then(asJson);
+export const registerAccount = (fields) => postPublic('/api/auth/register', fields);
+export const verifyEmail = ({ email, role, code }) => postPublic('/api/auth/verify-email', { email, role, code });
+export const resendEmailCode = ({ email, role }) => postPublic('/api/auth/resend-code', { email, role });
+export const loginWithPassword = ({ email, role, password }) => postPublic('/api/auth/login', { email, role, password });
+export const forgotPassword = ({ email, role }) => postPublic('/api/auth/forgot', { email, role });
+export const resetPassword = ({ email, role, code, newPassword }) => postPublic('/api/auth/reset', { email, role, code, newPassword });
+export const changePassword = ({ currentPassword, newPassword }) => postAuthed('/api/auth/password', { currentPassword, newPassword });
+export const requestPhoneCode = (phone) => postAuthed('/api/auth/phone/request', { phone });
+export const verifyPhoneCode = (phone, code) => postAuthed('/api/auth/phone/verify', { phone, code });
 
-export function verifyOtp({ email, role, code }) {
-  return fetch(`${API_BASE}/api/auth/verify-otp`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ email, role, code }),
-  }).then(asJson);
+// Builder verification (documents reviewed by an admin) and the admin review screens.
+export const getBuilderVerification = () => fetch(API_BASE + '/api/builder/verification', { headers: authHeaders() }).then(asJson);
+export const submitBuilderVerification = (formData) => fetch(API_BASE + '/api/builder/verification', { method: 'POST', headers: authHeaders(), body: formData }).then(asJson);
+export const listVerifications = (status) => fetch(API_BASE + '/api/admin/verifications' + (status ? '?status=' + status : ''), { headers: authHeaders() }).then(asJson);
+export const decideVerification = (id, decision, note) => postAuthed('/api/admin/verifications/' + id + '/decision', { decision, note });
+export async function openVerificationDoc(id, which) {
+  const res = await fetch(API_BASE + '/api/admin/verifications/' + id + '/doc/' + which, { headers: authHeaders() });
+  if (!res.ok) throw new Error('Could not open the document.');
+  window.open(URL.createObjectURL(await res.blob()), '_blank', 'noopener');
 }
 
 export function getMe() {

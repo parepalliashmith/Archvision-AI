@@ -56,6 +56,21 @@ app.use((req, res, next) => {
 });
 
 app.use(express.json({ limit: '10mb' }));
+
+// Resolves the signed session token to req.account (or null). The token carries the account's
+// session version, so changing/resetting a password signs out every older session.
+app.use(async (req, _res, next) => {
+  req.account = null;
+  const header = req.headers.authorization || '';
+  const payload = verifyToken(header.startsWith('Bearer ') ? header.slice(7) : null);
+  if (payload) {
+    try {
+      const sec = await store.getAccountSecrets(payload.accountId);
+      if (sec && (sec.sessionVersion || 0) === (payload.sv || 0)) req.account = payload;
+    } catch { /* treated as logged out */ }
+  }
+  next();
+});
 app.use(express.static(path.join(__dirname, 'public')));
 
 // Memory storage only (never written to disk) and capped at one 15MB file. The
@@ -110,24 +125,18 @@ const SERVICE_LOCATIONS = ['Hyderabad', 'Bangalore', 'Chennai', 'Mumbai', 'Pune'
 // returns null instead, since those routes must keep working for a
 // logged-out visitor holding a demo-builder token link.
 function requireAuth(req, res, next) {
-  const header = req.headers.authorization || '';
-  const token = header.startsWith('Bearer ') ? header.slice(7) : null;
-  const payload = verifyToken(token);
-  if (!payload) return res.status(401).json({ error: 'Please log in to continue.' });
-  req.account = payload;
+  if (!req.account) return res.status(401).json({ error: 'Please log in to continue.' });
   next();
 }
 
 function getOptionalAccount(req) {
-  const header = req.headers.authorization || '';
-  const token = header.startsWith('Bearer ') ? header.slice(7) : null;
-  return verifyToken(token);
+  return req.account || null;
 }
 
 app.get('/api/health', (_req, res) =>
   res.json({
     ok: true, configured: !!GEMINI_API_KEY, model: GEMINI_MODEL, storage: store.storageMode(),
-    emailConfigured: EMAIL_CONFIGURED,
+    emailConfigured: EMAIL_CONFIGURED, smsConfigured: SMS_CONFIGURED,
   })
 );
 
@@ -706,60 +715,255 @@ async function builderInbox(builderAccountId) {
 }
 
 // ---------------------------------------------------------------------------
-// Email-OTP login — the only auth this app has. No passwords, ever: an email
-// is verified by proving control of the inbox via a one-time code. Reuses
-// sendEmail() below and the same aiRateLimit per-IP throttle already used to
-// guard the inquiry routes against real-world abuse (here, inbox-spamming).
+// Accounts: email + password, with email-code verification, password reset, phone-code
+// verification and (for builders) document verification reviewed by an admin.
+// Passwords are hashed with scrypt; five wrong passwords lock the account for 15 minutes;
+// changing a password invalidates every older session (see the session middleware above).
 // ---------------------------------------------------------------------------
 
-app.post('/api/auth/request-otp', aiRateLimit, async (req, res) => {
-  const email = String(req.body?.email || '').trim().toLowerCase();
-  const role = req.body?.role === 'builder' ? 'builder' : 'customer';
-  if (!EMAIL_RE.test(email)) return res.status(400).json({ error: 'Enter a valid email address.' });
+const TWILIO_SID = process.env.TWILIO_ACCOUNT_SID || '';
+const TWILIO_TOKEN = process.env.TWILIO_AUTH_TOKEN || '';
+const TWILIO_FROM = process.env.TWILIO_FROM || '';
+const SMS_CONFIGURED = !!(TWILIO_SID && TWILIO_TOKEN && TWILIO_FROM);
+const ADMIN_EMAILS = (process.env.ADMIN_EMAILS || '').split(',').map((e) => e.trim().toLowerCase()).filter(Boolean);
+const scryptAsync = require('util').promisify(crypto.scrypt);
 
+async function sendSms(to, text) {
+  if (!SMS_CONFIGURED) return { sent: false };
+  const body = new URLSearchParams({ To: to, From: TWILIO_FROM, Body: text });
+  const r = await fetch(`https://api.twilio.com/2010-04-01/Accounts/${TWILIO_SID}/Messages.json`, {
+    method: 'POST',
+    headers: { Authorization: 'Basic ' + Buffer.from(`${TWILIO_SID}:${TWILIO_TOKEN}`).toString('base64'), 'Content-Type': 'application/x-www-form-urlencoded' },
+    body,
+  });
+  return { sent: r.ok };
+}
+
+async function hashPassword(pw) {
+  const salt = crypto.randomBytes(16);
+  const hash = await scryptAsync(pw, salt, 64);
+  return `scrypt$${salt.toString('hex')}$${hash.toString('hex')}`;
+}
+async function checkPassword(pw, stored) {
+  if (!stored || !String(stored).startsWith('scrypt$')) return false;
+  const [, saltHex, hashHex] = stored.split('$');
+  const expected = Buffer.from(hashHex, 'hex');
+  const actual = await scryptAsync(pw, Buffer.from(saltHex, 'hex'), expected.length);
+  return crypto.timingSafeEqual(actual, expected);
+}
+let DUMMY_HASH = null; // compared against when the account does not exist, so timing does not reveal it
+hashPassword('not-a-real-password-0').then((h) => { DUMMY_HASH = h; });
+function passwordProblem(pw) {
+  const p = String(pw || '');
+  if (p.length < 8) return 'Password must be at least 8 characters.';
+  if (p.length > 128) return 'Password is too long.';
+  if (!/[A-Za-z]/.test(p) || !/\d/.test(p)) return 'Password needs at least one letter and one number.';
+  return null;
+}
+
+// Separate, more generous per-IP limit for the auth routes (a person signing up makes several calls).
+const AUTH_RATE = { windowMs: 60_000, max: Number(process.env.AUTH_RATE_MAX) || 40 };
+const authLog = new Map();
+function authRateLimit(req, res, next) {
+  const ip = req.ip || req.socket.remoteAddress || 'unknown';
+  const now = Date.now();
+  const hits = (authLog.get(ip) || []).filter((t) => now - t < AUTH_RATE.windowMs);
+  if (hits.length >= AUTH_RATE.max) return res.status(429).json({ error: 'Too many attempts — please wait a minute and try again.' });
+  hits.push(now); authLog.set(ip, hits);
+  next();
+}
+
+// One-time codes, keyed by purpose so a code for one use can never serve another. Five wrong guesses
+// burn the code.
+const codeFails = new Map();
+async function issueCode(purpose, subject, role) {
+  const key = `${purpose}:${subject}`;
   const code = String(crypto.randomInt(0, 1_000_000)).padStart(6, '0');
-  const codeHash = crypto.createHash('sha256').update(code + email).digest('hex');
-  await store.saveOtpCode({ email, role, codeHash, expiresAt: new Date(Date.now() + 10 * 60_000).toISOString() });
+  const codeHash = crypto.createHash('sha256').update(code + key).digest('hex');
+  await store.saveOtpCode({ email: key, role, codeHash, expiresAt: new Date(Date.now() + 10 * 60_000).toISOString() });
+  codeFails.delete(key);
+  return code;
+}
+async function checkCode(purpose, subject, role, code) {
+  const key = `${purpose}:${subject}`;
+  const fails = codeFails.get(key) || 0;
+  if (fails >= 5) return false;
+  const ok = await store.consumeOtpCode({ email: key, role, code: String(code || '').trim() });
+  if (ok) codeFails.delete(key); else codeFails.set(key, fails + 1);
+  return ok;
+}
 
+function roleFrom(raw, email) {
+  if (raw === 'builder') return 'builder';
+  if (raw === 'admin') return ADMIN_EMAILS.includes(email) ? 'admin' : null;
+  return 'customer';
+}
+
+async function sessionFor(account) {
+  const sec = await store.getAccountSecrets(account.id);
+  const token = issueToken({ accountId: account.id, role: account.role, sv: sec?.sessionVersion || 0 });
+  const builderProfile = account.role === 'builder' ? await store.getBuilderProfile(account.id) : null;
+  return { ok: true, token, account, builderProfile, needsBuilderProfile: account.role === 'builder' && !builderProfile };
+}
+
+async function mailCode(to, subject, intro, code) {
   if (EMAIL_CONFIGURED) {
     await sendEmail({
-      to: email,
-      subject: `Your BuildBridge AI login code: ${code}`,
-      html: `<p>Your one-time login code is:</p><h2 style="letter-spacing:4px;">${code}</h2><p>This code expires in 10 minutes. If you didn't request this, you can ignore this email.</p>`,
+      to, subject,
+      html: `<p>${intro}</p><h2 style="letter-spacing:4px;">${code}</h2><p>This code expires in 10 minutes. If you did not request it, you can ignore this email.</p>`,
     }).catch(() => {});
   } else {
-    // Dev fallback — same graceful-degradation story as EMAIL_CONFIGURED
-    // elsewhere: without an email provider set, the code is logged AND
-    // returned in the response so local dev/testing never needs real email.
-    console.log(`[dev] OTP for ${email} (${role}): ${code}`);
+    console.log(`[dev] ${subject}: ${code}`);
+  }
+}
+
+app.post('/api/auth/register', authRateLimit, async (req, res) => {
+  const b = req.body || {};
+  const email = String(b.email || '').trim().toLowerCase();
+  const role = roleFrom(b.role, email);
+  if (!role) return res.status(403).json({ error: 'That email is not authorized for staff access.' });
+  const name = String(b.name || '').trim();
+  const location = String(b.location || '').trim();
+  const phone = normalizePhone(b.phone);
+  if (name.length < 2) return res.status(400).json({ error: 'Enter your full name.' });
+  if (!EMAIL_RE.test(email)) return res.status(400).json({ error: 'Enter a valid email address.' });
+  if (!phone) return res.status(400).json({ error: 'Enter a valid phone number (10 digits, or with country code).' });
+  if (location.length < 2) return res.status(400).json({ error: 'Enter your location.' });
+  const pwProblem = passwordProblem(b.password);
+  if (pwProblem) return res.status(400).json({ error: pwProblem });
+  let company = null; let yearsExperience = null;
+  if (role === 'builder') {
+    company = String(b.company || '').trim().slice(0, 80);
+    if (company.length < 2) return res.status(400).json({ error: 'Enter your company or firm name.' });
+    const y = Number(b.yearsExperience);
+    yearsExperience = Number.isFinite(y) && y >= 0 && y <= 70 ? Math.round(y) : null;
+  }
+
+  const existing = await store.getAccountByEmail(email, role);
+  if (existing) {
+    const sec = await store.getAccountSecrets(existing.id);
+    if (existing.emailVerified && sec?.passwordHash) return res.status(409).json({ error: 'An account with this email already exists. Please sign in.', code: 'EXISTS' });
+    if (existing.emailVerified && !sec?.passwordHash) return res.status(409).json({ error: 'This email has an older account without a password. Use "Forgot password" to set one.', code: 'NEEDS_PASSWORD' });
+    // Registered earlier but never verified: refresh the details and send a new code.
+    await store.updateAccount(existing.id, { name, location, phone, company, yearsExperience, passwordHash: await hashPassword(b.password) });
+  } else {
+    await store.saveAccount({ email, role, name, location, phone, company, yearsExperience, passwordHash: await hashPassword(b.password), emailVerified: false });
+  }
+  const code = await issueCode('verify-email', email, role);
+  await mailCode(email, `Your BuildBridge AI verification code: ${code}`, 'Welcome to BuildBridge AI. Your email verification code is:', code);
+  res.json({ ok: true, needsEmailVerification: true, devCode: EMAIL_CONFIGURED ? undefined : code });
+});
+
+app.post('/api/auth/resend-code', authRateLimit, async (req, res) => {
+  const email = String(req.body?.email || '').trim().toLowerCase();
+  const role = roleFrom(req.body?.role, email) || 'customer';
+  const acc = EMAIL_RE.test(email) ? await store.getAccountByEmail(email, role) : null;
+  let code;
+  if (acc && !acc.emailVerified) {
+    code = await issueCode('verify-email', email, role);
+    await mailCode(email, `Your BuildBridge AI verification code: ${code}`, 'Your email verification code is:', code);
   }
   res.json({ ok: true, devCode: EMAIL_CONFIGURED ? undefined : code });
 });
 
-app.post('/api/auth/verify-otp', aiRateLimit, async (req, res) => {
+app.post('/api/auth/verify-email', authRateLimit, async (req, res) => {
   const email = String(req.body?.email || '').trim().toLowerCase();
-  const role = req.body?.role === 'builder' ? 'builder' : 'customer';
-  const code = String(req.body?.code || '').trim();
-  if (!EMAIL_RE.test(email) || !/^\d{6}$/.test(code)) {
-    return res.status(400).json({ error: 'Invalid email or code.' });
+  const role = roleFrom(req.body?.role, email) || 'customer';
+  const acc = await store.getAccountByEmail(email, role);
+  if (!acc || !(await checkCode('verify-email', email, role, req.body?.code))) return res.status(401).json({ error: 'Invalid or expired code.' });
+  const updated = await store.updateAccount(acc.id, { emailVerified: true });
+  res.json(await sessionFor(updated));
+});
+
+app.post('/api/auth/login', authRateLimit, async (req, res) => {
+  const email = String(req.body?.email || '').trim().toLowerCase();
+  const role = roleFrom(req.body?.role, email) || 'customer';
+  const password = String(req.body?.password || '');
+  const generic = { error: 'Incorrect email or password.' };
+  const acc = EMAIL_RE.test(email) ? await store.getAccountByEmail(email, role) : null;
+  if (!acc) { await checkPassword(password, DUMMY_HASH); return res.status(401).json(generic); }
+
+  const sec = await store.getAccountSecrets(acc.id);
+  if (sec.lockedUntil && new Date(sec.lockedUntil) > new Date()) {
+    return res.status(429).json({ error: 'Too many wrong passwords. Try again in a few minutes, or reset your password.', code: 'LOCKED' });
   }
+  if (!sec.passwordHash) return res.status(409).json({ error: 'This account has no password yet. Use "Forgot password" to set one.', code: 'NEEDS_PASSWORD' });
+  if (!(await checkPassword(password, sec.passwordHash))) {
+    const fails = (sec.failedLogins || 0) + 1;
+    await store.updateAccount(acc.id, fails >= 5 ? { failedLogins: 0, lockedUntil: new Date(Date.now() + 15 * 60_000).toISOString() } : { failedLogins: fails });
+    return res.status(401).json(generic);
+  }
+  if (!acc.emailVerified) {
+    const code = await issueCode('verify-email', email, role);
+    await mailCode(email, `Your BuildBridge AI verification code: ${code}`, 'Your email verification code is:', code);
+    return res.status(403).json({ error: 'Verify your email first. We sent a new code.', code: 'EMAIL_NOT_VERIFIED', devCode: EMAIL_CONFIGURED ? undefined : code });
+  }
+  await store.updateAccount(acc.id, { failedLogins: 0, lockedUntil: null });
+  res.json(await sessionFor(acc));
+});
 
-  const ok = await store.consumeOtpCode({ email, role, code });
-  if (!ok) return res.status(401).json({ error: 'Invalid or expired code.' });
+app.post('/api/auth/forgot', authRateLimit, async (req, res) => {
+  const email = String(req.body?.email || '').trim().toLowerCase();
+  const role = roleFrom(req.body?.role, email) || 'customer';
+  const acc = EMAIL_RE.test(email) ? await store.getAccountByEmail(email, role) : null;
+  let code;
+  if (acc) {
+    code = await issueCode('reset', email, role);
+    await mailCode(email, `Your BuildBridge AI password reset code: ${code}`, 'Use this code to set a new password:', code);
+  }
+  // Same answer whether or not the account exists, so this cannot be used to discover who has one.
+  res.json({ ok: true, devCode: EMAIL_CONFIGURED ? undefined : code });
+});
 
-  let account = await store.getAccountByEmail(email, role);
-  const isNewAccount = !account;
-  if (!account) account = await store.saveAccount({ email, role });
-
-  let builderProfile = null;
-  if (role === 'builder') builderProfile = await store.getBuilderProfile(account.id);
-
-  const token = issueToken({ accountId: account.id, role: account.role });
-  res.json({
-    ok: true, token, account, isNewAccount,
-    needsBuilderProfile: role === 'builder' && !builderProfile,
-    builderProfile,
+app.post('/api/auth/reset', authRateLimit, async (req, res) => {
+  const email = String(req.body?.email || '').trim().toLowerCase();
+  const role = roleFrom(req.body?.role, email) || 'customer';
+  const pwProblem = passwordProblem(req.body?.newPassword);
+  if (pwProblem) return res.status(400).json({ error: pwProblem });
+  const acc = await store.getAccountByEmail(email, role);
+  if (!acc || !(await checkCode('reset', email, role, req.body?.code))) return res.status(401).json({ error: 'Invalid or expired code.' });
+  const sec = await store.getAccountSecrets(acc.id);
+  const updated = await store.updateAccount(acc.id, {
+    passwordHash: await hashPassword(req.body.newPassword), emailVerified: true, failedLogins: 0, lockedUntil: null, sessionVersion: (sec.sessionVersion || 0) + 1,
   });
+  res.json(await sessionFor(updated));
+});
+
+app.post('/api/auth/password', requireAuth, authRateLimit, async (req, res) => {
+  const { currentPassword, newPassword } = req.body || {};
+  const pwProblem = passwordProblem(newPassword);
+  if (pwProblem) return res.status(400).json({ error: pwProblem });
+  const sec = await store.getAccountSecrets(req.account.accountId);
+  if (sec.passwordHash && !(await checkPassword(String(currentPassword || ''), sec.passwordHash))) return res.status(401).json({ error: 'Current password is incorrect.' });
+  const updated = await store.updateAccount(req.account.accountId, { passwordHash: await hashPassword(newPassword), sessionVersion: (sec.sessionVersion || 0) + 1 });
+  res.json(await sessionFor(updated));
+});
+
+// Phone verification by a 6-digit code. With an SMS provider configured the code is texted to the number.
+// Without one the app runs in demo mode: the code is shown on screen and the result is recorded as a
+// "demo" confirmation, which the interface labels honestly (it proves nothing about who owns the number).
+const phoneSends = new Map();
+app.post('/api/auth/phone/request', requireAuth, authRateLimit, async (req, res) => {
+  const phone = normalizePhone(req.body?.phone);
+  if (!phone) return res.status(400).json({ error: 'Enter a valid phone number (10 digits, or with country code).' });
+  const now = Date.now();
+  const sends = (phoneSends.get(req.account.accountId) || []).filter((t) => now - t < 3_600_000);
+  if (sends.length >= 5) return res.status(429).json({ error: 'Too many codes requested. Try again in an hour.' });
+  sends.push(now); phoneSends.set(req.account.accountId, sends);
+  const code = await issueCode('phone', `${req.account.accountId}:${phone}`, req.account.role);
+  let sent = false;
+  if (SMS_CONFIGURED) sent = (await sendSms(phone, `Your BuildBridge AI verification code is ${code}. It expires in 10 minutes.`).catch(() => ({ sent: false }))).sent;
+  else console.log(`[dev] phone code for ${phone}: ${code}`);
+  res.json({ ok: true, phone, smsConfigured: SMS_CONFIGURED, sent, devCode: SMS_CONFIGURED ? undefined : code });
+});
+
+app.post('/api/auth/phone/verify', requireAuth, authRateLimit, async (req, res) => {
+  const phone = normalizePhone(req.body?.phone);
+  if (!phone) return res.status(400).json({ error: 'Enter a valid phone number.' });
+  if (!(await checkCode('phone', `${req.account.accountId}:${phone}`, req.account.role, req.body?.code))) return res.status(401).json({ error: 'Invalid or expired code.' });
+  await store.updateAccount(req.account.accountId, { phone });
+  const account = await store.updateAccount(req.account.accountId, { phoneVerified: true, phoneVerifiedVia: SMS_CONFIGURED ? 'sms' : 'demo' });
+  res.json({ ok: true, account });
 });
 
 app.post('/api/auth/phone', requireAuth, async (req, res) => {
@@ -774,7 +978,7 @@ app.get('/api/auth/me', requireAuth, async (req, res) => {
   const account = await store.getAccountById(req.account.accountId);
   if (!account) return res.status(401).json({ error: 'Account no longer exists.' });
   const builderProfile = account.role === 'builder' ? await store.getBuilderProfile(account.id) : null;
-  res.json({ ok: true, account, builderProfile });
+  res.json({ ok: true, account, builderProfile, smsConfigured: SMS_CONFIGURED });
 });
 
 app.post('/api/builder/profile', requireAuth, async (req, res) => {
@@ -802,16 +1006,109 @@ app.post('/api/builder/profile', requireAuth, async (req, res) => {
   res.json({ ok: true, builderProfile: profile, account });
 });
 
+// ---------------------------------------------------------------------------
+// Builder verification: the builder submits firm details plus an ID and a licence/registration
+// document; an admin reviews them. Only an approval sets the public "Verified" badge.
+// ---------------------------------------------------------------------------
+const verifyUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 3 * 1024 * 1024, files: 2 },
+  fileFilter: (_req, file, cb) => (ALLOWED_UPLOAD_TYPES.test(file.mimetype) ? cb(null, true) : cb(Object.assign(new Error('Only image or PDF files are accepted.'), { status: 415 }))),
+}).fields([{ name: 'idDoc', maxCount: 1 }, { name: 'licenseDoc', maxCount: 1 }]);
+
+const toDoc = (file) => (file ? { name: String(file.originalname).slice(0, 120), type: file.mimetype, size: file.size, data: file.buffer.toString('base64') } : null);
+const docMeta = (d) => (d ? { name: d.name, type: d.type, size: d.size } : null);
+
+app.post('/api/builder/verification', requireAuth, (req, res, next) => verifyUpload(req, res, (err) => (err ? res.status(err.status || 400).json({ error: err.message }) : next())), async (req, res) => {
+  if (req.account.role !== 'builder') return res.status(403).json({ error: 'Builder account required.' });
+  const profile = await store.getBuilderProfile(req.account.accountId);
+  if (!profile) return res.status(400).json({ error: 'Complete your builder profile first.' });
+  const existing = await store.listVerificationRequests({ accountId: req.account.accountId });
+  if (existing.some((v) => v.status === 'pending')) return res.status(409).json({ error: 'You already have a verification request under review.' });
+  if (profile.verified) return res.status(409).json({ error: 'Your profile is already verified.' });
+  const idDoc = toDoc(req.files?.idDoc?.[0]); const licenseDoc = toDoc(req.files?.licenseDoc?.[0]);
+  if (!idDoc || !licenseDoc) return res.status(400).json({ error: 'Upload both a government ID and a licence or registration document.' });
+  const b = req.body || {};
+  const firmName = String(b.firmName || '').trim().slice(0, 120);
+  const registrationNo = String(b.registrationNo || '').trim().slice(0, 60);
+  if (!firmName || !registrationNo) return res.status(400).json({ error: 'Firm name and registration / licence number are required.' });
+  const rec = await store.saveVerificationRequest({ accountId: req.account.accountId, details: { firmName, registrationNo, licenseType: String(b.licenseType || '').slice(0, 60), notes: String(b.notes || '').slice(0, 800) }, idDoc, licenseDoc });
+  res.json({ ok: true, id: rec.id, status: rec.status });
+});
+
+app.get('/api/builder/verification', requireAuth, async (req, res) => {
+  if (req.account.role !== 'builder') return res.status(403).json({ error: 'Builder account required.' });
+  const profile = await store.getBuilderProfile(req.account.accountId);
+  const list = await store.listVerificationRequests({ accountId: req.account.accountId });
+  const latest = list[0] ? { id: list[0].id, status: list[0].status, details: list[0].details, reviewerNote: list[0].reviewerNote, submittedAt: list[0].submittedAt, reviewedAt: list[0].reviewedAt } : null;
+  res.json({ ok: true, verified: !!profile?.verified, verifiedAt: profile?.verifiedAt || null, latest });
+});
+
+async function requireAdmin(req, res, next) {
+  if (!req.account || req.account.role !== 'admin') return res.status(403).json({ error: 'Staff access required.' });
+  const acc = await store.getAccountById(req.account.accountId);
+  if (!acc || !ADMIN_EMAILS.includes(acc.email)) return res.status(403).json({ error: 'Staff access required.' });
+  next();
+}
+
+app.get('/api/admin/verifications', requireAuth, requireAdmin, async (req, res) => {
+  const status = ['pending', 'approved', 'rejected'].includes(req.query.status) ? req.query.status : undefined;
+  const list = await store.listVerificationRequests({ status });
+  const out = await Promise.all(list.map(async (v) => {
+    const acc = await store.getAccountById(v.accountId);
+    const prof = await store.getBuilderProfile(v.accountId);
+    return {
+      id: v.id, status: v.status, details: v.details, reviewerNote: v.reviewerNote, submittedAt: v.submittedAt, reviewedAt: v.reviewedAt,
+      idDoc: docMeta(v.idDoc), licenseDoc: docMeta(v.licenseDoc),
+      builder: { name: prof?.name || acc?.company || acc?.name, owner: acc?.name, email: acc?.email, phone: acc?.phone, phoneVerified: acc?.phoneVerified, phoneVerifiedVia: acc?.phoneVerifiedVia, location: acc?.location, yearsExperience: prof?.yearsExperience ?? acc?.yearsExperience },
+    };
+  }));
+  res.json({ ok: true, verifications: out });
+});
+
+app.get('/api/admin/verifications/:id/doc/:which', requireAuth, requireAdmin, async (req, res) => {
+  const v = await store.getVerificationRequest(req.params.id);
+  const doc = v && (req.params.which === 'id' ? v.idDoc : req.params.which === 'license' ? v.licenseDoc : null);
+  if (!doc) return res.status(404).json({ error: 'Document not found.' });
+  res.set({ 'Content-Type': doc.type, 'Content-Disposition': `inline; filename="${String(doc.name).replace(/[^\w.\- ]/g, '_')}"`, 'Cache-Control': 'private, no-store', 'X-Content-Type-Options': 'nosniff' });
+  res.send(Buffer.from(doc.data, 'base64'));
+});
+
+app.post('/api/admin/verifications/:id/decision', requireAuth, requireAdmin, async (req, res) => {
+  const decision = req.body?.decision;
+  if (!['approve', 'reject'].includes(decision)) return res.status(400).json({ error: 'decision must be approve or reject.' });
+  const v = await store.getVerificationRequest(req.params.id);
+  if (!v) return res.status(404).json({ error: 'Request not found.' });
+  if (v.status !== 'pending') return res.status(409).json({ error: 'This request was already reviewed.' });
+  const note = String(req.body?.note || '').slice(0, 600);
+  if (decision === 'reject' && !note.trim()) return res.status(400).json({ error: 'Give the builder a reason for the rejection.' });
+  await store.reviewVerificationRequest(v.id, { status: decision === 'approve' ? 'approved' : 'rejected', reviewerNote: note });
+  if (decision === 'approve') await store.setBuilderVerified(v.accountId, true);
+  const acc = await store.getAccountById(v.accountId);
+  if (EMAIL_CONFIGURED && acc?.email) {
+    sendEmail({
+      to: acc.email,
+      subject: `Your BuildBridge AI verification was ${decision === 'approve' ? 'approved' : 'not approved'}`,
+      html: decision === 'approve'
+        ? '<p>Your documents were reviewed and your profile now shows the Verified badge.</p>'
+        : `<p>We could not approve your verification request.</p><p><strong>Reason:</strong> ${escapeHtml(note)}</p><p>You can submit it again from your Verification page.</p>`,
+    }).catch(() => {});
+  }
+  res.json({ ok: true });
+});
+
 // Real signed-up builders — merged client-side with the static demo
 // directory (client/src/data/builders.js). Public, no auth: this is the
 // same "browsable directory" visibility the demo builders already have.
 app.get('/api/builders', async (_req, res) => {
   const builders = await store.listBuilderAccounts();
+  const accs = await Promise.all(builders.map((b) => store.getAccountById(b.accountId)));
   res.json({
-    builders: builders.map((b) => ({
+    builders: builders.map((b, i) => ({
+      phoneVerified: !!accs[i]?.phoneVerified, phoneVerifiedVia: accs[i]?.phoneVerifiedVia || null,
       id: b.accountId, name: b.name, specializations: b.specializations,
       serviceLocations: b.serviceLocations, about: b.about, priceRange: b.priceRange,
-      yearsExperience: b.yearsExperience, availability: b.availability, services: b.services, source: 'account',
+      yearsExperience: b.yearsExperience, availability: b.availability, services: b.services, verified: !!b.verified, source: 'account',
     })),
   });
 });
@@ -838,6 +1135,8 @@ app.post('/api/inquiries', requireAuth, aiRateLimit, async (req, res) => {
   // with the builder alongside their email.
   const phone = normalizePhone(customerPhone);
   if (!phone) return res.status(400).json({ error: 'A valid phone number is required so the builder can reach you.' });
+  const me = await store.getAccountById(req.account.accountId);
+  if (!me?.phoneVerified || (me.phone && me.phone !== phone)) return res.status(403).json({ error: 'Verify your phone number before sending a project request.', code: 'PHONE_NOT_VERIFIED' });
   const customerAccount = (await store.getAccountById(req.account.accountId));
   const savedAccount = customerAccount && customerAccount.phone !== phone
     ? await store.updateAccountPhone(req.account.accountId, phone)
@@ -1021,10 +1320,11 @@ app.get('/api/inquiries/:id', async (req, res) => {
     let contact = null;
     if (contactEnabled(inquiry)) {
       if (role === 'builder') {
-        contact = { name: inquiry.customerName, email: inquiry.customerEmail, phone: inquiry.customerPhone || null };
+        const ca = inquiry.accountId ? await store.getAccountById(inquiry.accountId) : null;
+        contact = { name: inquiry.customerName, email: inquiry.customerEmail, phone: inquiry.customerPhone || null, emailVerified: ca ? ca.emailVerified : undefined, phoneVerified: ca ? ca.phoneVerified : undefined, phoneVerifiedVia: ca?.phoneVerifiedVia || null };
       } else if (inquiry.builderAccountId) {
         const b = await store.getAccountById(inquiry.builderAccountId);
-        if (b) contact = { name: inquiry.builderName, email: b.email, phone: b.phone || null };
+        if (b) contact = { name: inquiry.builderName, email: b.email, phone: b.phone || null, emailVerified: b.emailVerified, phoneVerified: b.phoneVerified, phoneVerifiedVia: b.phoneVerifiedVia || null };
       }
     }
     const msgs = await store.listMessages(inquiry.id);
@@ -1050,6 +1350,10 @@ app.post('/api/inquiries/:id/respond', async (req, res) => {
     const action = req.body?.action;
     if (!['accept', 'decline'].includes(action)) return res.status(400).json({ error: 'action must be accept or decline.' });
     if (!['requested', 'reviewing'].includes(inquiry.status)) return res.status(409).json({ error: 'This request has already been answered.' });
+    if (action === 'accept' && inquiry.builderAccountId) {
+      const bAcc = await store.getAccountById(inquiry.builderAccountId);
+      if (!bAcc?.phoneVerified) return res.status(403).json({ error: 'Verify your phone number before accepting requests.', code: 'PHONE_NOT_VERIFIED' });
+    }
     const updated = await store.updateInquiry(inquiry.id, { status: action === 'accept' ? 'accepted' : 'declined', respondedAt: new Date().toISOString() });
     if (EMAIL_CONFIGURED) {
       const link = `${appOrigin(req)}/?view=my-enquiry&inquiry=${inquiry.id}`;

@@ -30,7 +30,7 @@ function colorFromString(str) {
 export function normalizeRealBuilder(b) {
   return {
     ...b,
-    verified: false,
+    verified: !!b.verified,
     rating: 0,
     projectsCompleted: 0,
     portfolio: [],

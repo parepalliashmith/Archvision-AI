@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { motion } from 'framer-motion';
 import { Inbox } from 'lucide-react';
-import { listBuilderInquiries } from '../lib/api.js';
+import { getBuilderVerification, listBuilderInquiries } from '../lib/api.js';
 import { fmtINR } from '../lib/format.js';
 import ProjectWorkspace from './ProjectWorkspace.jsx';
 import RelationshipTimeline, { relationshipStatus } from '../components/RelationshipTimeline.jsx';
@@ -23,7 +23,9 @@ const EMPTY = {
   quotations: 'No quotations yet. Send one from an accepted project.',
 };
 
-export default function BuilderDashboard({ mode = 'overview' }) {
+export default function BuilderDashboard({ mode = 'overview', onNavigate }) {
+  const [verification, setVerification] = useState(null);
+  useEffect(() => { getBuilderVerification().then(setVerification).catch(() => {}); }, []);
   const [inquiries, setInquiries] = useState([]);
   const [loading, setLoading] = useState(true);
   const [selected, setSelected] = useState(null);
@@ -41,7 +43,7 @@ export default function BuilderDashboard({ mode = 'overview' }) {
   if (loading) return <p className="section-sub">Loading your requests…</p>;
 
   if (selected) {
-    return <ProjectWorkspace inquiryId={selected} viewer="builder" onBack={() => setSelected(null)} backLabel="Back to requests" />;
+    return <ProjectWorkspace inquiryId={selected} viewer="builder" onBack={() => setSelected(null)} backLabel="Back to requests" onNavigate={onNavigate} />;
   }
 
   const list = inquiries.filter(FILTERS[mode] || FILTERS.overview);
@@ -49,6 +51,12 @@ export default function BuilderDashboard({ mode = 'overview' }) {
 
   return (
     <div>
+      {mode === 'overview' && verification && !verification.verified && (
+        <div className="action-banner" style={{ marginBottom: 16 }}>
+          <div><strong>{verification.latest?.status === 'pending' ? 'Verification under review' : 'Get your Verified badge'}</strong><p>{verification.latest?.status === 'pending' ? 'We will email you once your documents are reviewed.' : 'Customers trust verified builders more. Upload your ID and licence for review.'}</p></div>
+          <button className="btn btn-navy btn-sm" onClick={() => onNavigate?.('builder-verification')}>{verification.latest?.status === 'pending' ? 'View status' : 'Get verified'}</button>
+        </div>
+      )}
       {mode === 'overview' && (
         <div className="stat-tiles">
           <div className="stat-tile stat-tile--hot"><b>{counts.requests}</b><span>New requests</span></div>

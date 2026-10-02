@@ -18,6 +18,7 @@ const MESSAGES_FILE = path.join(DATA_DIR, 'messages.json');
 const ACCOUNTS_FILE = path.join(DATA_DIR, 'accounts.json');
 const BUILDER_PROFILES_FILE = path.join(DATA_DIR, 'builder_profiles.json');
 const OTP_CODES_FILE = path.join(DATA_DIR, 'otp_codes.json');
+const VERIFICATIONS_FILE = path.join(DATA_DIR, 'verifications.json');
 
 let pool = null;
 let usePg = false;
@@ -100,6 +101,34 @@ async function init() {
       `);
       await pool.query('CREATE UNIQUE INDEX IF NOT EXISTS accounts_email_role_idx ON accounts (email, role)');
       await pool.query('ALTER TABLE accounts ADD COLUMN IF NOT EXISTS phone TEXT');
+      // Password accounts. Accounts that existed before passwords were verified by email code, so they
+      // default to email_verified = true and have no password until they set one (forgot-password flow).
+      await pool.query('ALTER TABLE accounts ADD COLUMN IF NOT EXISTS name TEXT');
+      await pool.query('ALTER TABLE accounts ADD COLUMN IF NOT EXISTS location TEXT');
+      await pool.query('ALTER TABLE accounts ADD COLUMN IF NOT EXISTS company TEXT');
+      await pool.query('ALTER TABLE accounts ADD COLUMN IF NOT EXISTS years_experience INTEGER');
+      await pool.query('ALTER TABLE accounts ADD COLUMN IF NOT EXISTS password_hash TEXT');
+      await pool.query('ALTER TABLE accounts ADD COLUMN IF NOT EXISTS email_verified BOOLEAN DEFAULT true');
+      await pool.query('ALTER TABLE accounts ADD COLUMN IF NOT EXISTS phone_verified BOOLEAN DEFAULT false');
+      await pool.query('ALTER TABLE accounts ADD COLUMN IF NOT EXISTS phone_verified_via TEXT');
+      await pool.query('ALTER TABLE accounts ADD COLUMN IF NOT EXISTS failed_logins INTEGER DEFAULT 0');
+      await pool.query('ALTER TABLE accounts ADD COLUMN IF NOT EXISTS locked_until TIMESTAMPTZ');
+      await pool.query('ALTER TABLE accounts ADD COLUMN IF NOT EXISTS session_version INTEGER DEFAULT 0');
+      await pool.query('ALTER TABLE builder_profiles ADD COLUMN IF NOT EXISTS verified BOOLEAN DEFAULT false');
+      await pool.query('ALTER TABLE builder_profiles ADD COLUMN IF NOT EXISTS verified_at TIMESTAMPTZ');
+      await pool.query(`
+        CREATE TABLE IF NOT EXISTS verification_requests (
+          id TEXT PRIMARY KEY,
+          account_id TEXT NOT NULL,
+          status TEXT NOT NULL DEFAULT 'pending',
+          details JSONB,
+          id_doc JSONB,
+          license_doc JSONB,
+          reviewer_note TEXT,
+          submitted_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+          reviewed_at TIMESTAMPTZ
+        )
+      `);
       await pool.query('ALTER TABLE builder_profiles ADD COLUMN IF NOT EXISTS availability TEXT');
       await pool.query('ALTER TABLE builder_profiles ADD COLUMN IF NOT EXISTS services JSONB');
       await pool.query(`
@@ -194,6 +223,15 @@ function readAllMessages() {
 function writeAllMessages(list) {
   ensureFileStore();
   fs.writeFileSync(MESSAGES_FILE, JSON.stringify(list, null, 2));
+}
+
+function readJsonFile(file) {
+  ensureFileStore();
+  try { return JSON.parse(fs.readFileSync(file, 'utf8')); } catch { return []; }
+}
+function writeJsonFile(file, list) {
+  ensureFileStore();
+  fs.writeFileSync(file, JSON.stringify(list, null, 2));
 }
 
 function readAllAccounts() {
@@ -291,12 +329,30 @@ function rowToMessageRecord(row) {
   };
 }
 
+// Public account shape: never includes the password hash, lockout counters or session version.
+function publicAccount(a) {
+  if (!a) return null;
+  return {
+    id: a.id, email: a.email, role: a.role, phone: a.phone || null,
+    name: a.name || null, location: a.location || null, company: a.company || null, yearsExperience: a.yearsExperience ?? null,
+    emailVerified: a.emailVerified !== false, phoneVerified: !!a.phoneVerified, phoneVerifiedVia: a.phoneVerifiedVia || null,
+    createdAt: a.createdAt,
+  };
+}
+
 function rowToAccountRecord(row) {
   return {
     id: row.id,
     email: row.email,
     role: row.role,
     phone: row.phone || null,
+    name: row.name || null,
+    location: row.location || null,
+    company: row.company || null,
+    yearsExperience: row.years_experience ?? null,
+    emailVerified: row.email_verified !== false,
+    phoneVerified: !!row.phone_verified,
+    phoneVerifiedVia: row.phone_verified_via || null,
     createdAt: row.created_at instanceof Date ? row.created_at.toISOString() : row.created_at,
   };
 }
@@ -312,6 +368,8 @@ function rowToBuilderProfileRecord(row) {
     yearsExperience: row.years_experience,
     availability: row.availability || 'available',
     services: row.services || [],
+    verified: !!row.verified,
+    verifiedAt: row.verified_at instanceof Date ? row.verified_at.toISOString() : row.verified_at || null,
     updatedAt: row.updated_at instanceof Date ? row.updated_at.toISOString() : row.updated_at,
   };
 }
@@ -533,7 +591,7 @@ async function getAccountByEmail(email, role) {
     const res = await pool.query('SELECT * FROM accounts WHERE email = $1 AND role = $2', [email, role]);
     return res.rows[0] ? rowToAccountRecord(res.rows[0]) : null;
   }
-  return readAllAccounts().find((a) => a.email === email && a.role === role) || null;
+  return publicAccount(readAllAccounts().find((a) => a.email === email && a.role === role));
 }
 
 async function getAccountById(id) {
@@ -541,42 +599,134 @@ async function getAccountById(id) {
     const res = await pool.query('SELECT * FROM accounts WHERE id = $1', [id]);
     return res.rows[0] ? rowToAccountRecord(res.rows[0]) : null;
   }
-  return readAllAccounts().find((a) => a.id === id) || null;
+  return publicAccount(readAllAccounts().find((a) => a.id === id));
 }
 
-// Find-or-create — an OTP verify always resolves to an account, creating one
-// on first-ever login for that (email, role) pair.
-async function saveAccount({ email, role }) {
+// Authentication-only data (never returned by the API): hash, failed-login counter, lock, session version.
+async function getAccountSecrets(id) {
+  if (usePg) {
+    const res = await pool.query('SELECT password_hash, failed_logins, locked_until, session_version FROM accounts WHERE id = $1', [id]);
+    const r = res.rows[0];
+    return r ? { passwordHash: r.password_hash || null, failedLogins: r.failed_logins || 0, lockedUntil: r.locked_until ? new Date(r.locked_until).toISOString() : null, sessionVersion: r.session_version || 0 } : null;
+  }
+  const a = readAllAccounts().find((x) => x.id === id);
+  return a ? { passwordHash: a.passwordHash || null, failedLogins: a.failedLogins || 0, lockedUntil: a.lockedUntil || null, sessionVersion: a.sessionVersion || 0 } : null;
+}
+
+// Creates an account (or returns the existing one for that email + role).
+async function saveAccount({ email, role, name, location, phone, company, yearsExperience, passwordHash, emailVerified }) {
   const existing = await getAccountByEmail(email, role);
   if (existing) return existing;
 
-  const record = { id: newId(), email, role, createdAt: new Date().toISOString() };
+  const record = {
+    id: newId(), email, role, name: name || null, location: location || null, phone: phone || null,
+    company: company || null, yearsExperience: yearsExperience ?? null,
+    emailVerified: emailVerified !== false, phoneVerified: false, phoneVerifiedVia: null,
+    createdAt: new Date().toISOString(),
+  };
   if (usePg) {
     await pool.query(
-      'INSERT INTO accounts (id, email, role, created_at) VALUES ($1, $2, $3, $4)',
-      [record.id, record.email, record.role, record.createdAt]
+      `INSERT INTO accounts (id, email, role, created_at, name, location, phone, company, years_experience, password_hash, email_verified, phone_verified, session_version)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, false, 0)`,
+      [record.id, record.email, record.role, record.createdAt, record.name, record.location, record.phone, record.company, record.yearsExperience, passwordHash || null, record.emailVerified]
     );
     return record;
   }
   const list = readAllAccounts();
-  list.push(record);
+  list.push({ ...record, passwordHash: passwordHash || null, failedLogins: 0, lockedUntil: null, sessionVersion: 0 });
   writeAllAccounts(list);
   return record;
 }
 
-// The account's registered phone number (E.164, already normalized by server.js).
-// Shared with the other party only once an enquiry connects the two.
-async function updateAccountPhone(id, phone) {
+// Whitelisted account updates (profile fields, verification flags and the auth secrets).
+const ACCOUNT_PATCH_COLUMNS = {
+  name: 'name', location: 'location', company: 'company', yearsExperience: 'years_experience', phone: 'phone',
+  emailVerified: 'email_verified', phoneVerified: 'phone_verified', phoneVerifiedVia: 'phone_verified_via',
+  passwordHash: 'password_hash', failedLogins: 'failed_logins', lockedUntil: 'locked_until', sessionVersion: 'session_version',
+};
+async function updateAccount(id, patch) {
+  const keys = Object.keys(patch).filter((k) => k in ACCOUNT_PATCH_COLUMNS);
+  if (!keys.length) return getAccountById(id);
   if (usePg) {
-    const res = await pool.query('UPDATE accounts SET phone = $2 WHERE id = $1 RETURNING *', [id, phone]);
+    const sets = keys.map((k, i) => `${ACCOUNT_PATCH_COLUMNS[k]} = $${i + 2}`).join(', ');
+    const res = await pool.query(`UPDATE accounts SET ${sets} WHERE id = $1 RETURNING *`, [id, ...keys.map((k) => patch[k])]);
     return res.rows[0] ? rowToAccountRecord(res.rows[0]) : null;
   }
   const list = readAllAccounts();
   const acc = list.find((a) => a.id === id);
   if (!acc) return null;
-  acc.phone = phone;
+  keys.forEach((k) => { acc[k] = patch[k]; });
   writeAllAccounts(list);
-  return acc;
+  return publicAccount(acc);
+}
+
+// The account's registered phone number (E.164, already normalized by server.js). Changing the number
+// clears its verification. Shared with the other party only once the builder accepts a request.
+async function updateAccountPhone(id, phone) {
+  const current = await getAccountById(id);
+  if (!current) return null;
+  if (current.phone === phone) return current;
+  return updateAccount(id, { phone, phoneVerified: false, phoneVerifiedVia: null });
+}
+
+// Builder verification requests (documents are stored with the request: small files only).
+async function saveVerificationRequest({ accountId, details, idDoc, licenseDoc }) {
+  const record = { id: newId(), accountId, status: 'pending', details: details || {}, idDoc: idDoc || null, licenseDoc: licenseDoc || null, reviewerNote: null, submittedAt: new Date().toISOString(), reviewedAt: null };
+  if (usePg) {
+    await pool.query(
+      'INSERT INTO verification_requests (id, account_id, status, details, id_doc, license_doc, submitted_at) VALUES ($1, $2, $3, $4, $5, $6, $7)',
+      [record.id, accountId, record.status, JSON.stringify(record.details), JSON.stringify(record.idDoc), JSON.stringify(record.licenseDoc), record.submittedAt]
+    );
+    return record;
+  }
+  const list = readJsonFile(VERIFICATIONS_FILE);
+  list.push(record);
+  writeJsonFile(VERIFICATIONS_FILE, list);
+  return record;
+}
+function rowToVerification(r) {
+  return { id: r.id, accountId: r.account_id, status: r.status, details: r.details || {}, idDoc: r.id_doc || null, licenseDoc: r.license_doc || null, reviewerNote: r.reviewer_note || null,
+    submittedAt: r.submitted_at instanceof Date ? r.submitted_at.toISOString() : r.submitted_at, reviewedAt: r.reviewed_at instanceof Date ? r.reviewed_at.toISOString() : r.reviewed_at || null };
+}
+async function listVerificationRequests({ accountId, status } = {}) {
+  if (usePg) {
+    const cond = []; const vals = [];
+    if (accountId) { vals.push(accountId); cond.push(`account_id = $${vals.length}`); }
+    if (status) { vals.push(status); cond.push(`status = $${vals.length}`); }
+    const res = await pool.query(`SELECT * FROM verification_requests ${cond.length ? 'WHERE ' + cond.join(' AND ') : ''} ORDER BY submitted_at DESC`, vals);
+    return res.rows.map(rowToVerification);
+  }
+  return readJsonFile(VERIFICATIONS_FILE).filter((v) => (!accountId || v.accountId === accountId) && (!status || v.status === status)).sort((a, b) => (a.submittedAt < b.submittedAt ? 1 : -1));
+}
+async function getVerificationRequest(id) {
+  if (usePg) {
+    const res = await pool.query('SELECT * FROM verification_requests WHERE id = $1', [id]);
+    return res.rows[0] ? rowToVerification(res.rows[0]) : null;
+  }
+  return readJsonFile(VERIFICATIONS_FILE).find((v) => v.id === id) || null;
+}
+async function reviewVerificationRequest(id, { status, reviewerNote }) {
+  const reviewedAt = new Date().toISOString();
+  if (usePg) {
+    const res = await pool.query('UPDATE verification_requests SET status = $2, reviewer_note = $3, reviewed_at = $4 WHERE id = $1 RETURNING *', [id, status, reviewerNote || null, reviewedAt]);
+    return res.rows[0] ? rowToVerification(res.rows[0]) : null;
+  }
+  const list = readJsonFile(VERIFICATIONS_FILE);
+  const v = list.find((x) => x.id === id);
+  if (!v) return null;
+  Object.assign(v, { status, reviewerNote: reviewerNote || null, reviewedAt });
+  writeJsonFile(VERIFICATIONS_FILE, list);
+  return v;
+}
+async function setBuilderVerified(accountId, verified) {
+  const at = verified ? new Date().toISOString() : null;
+  if (usePg) {
+    await pool.query('UPDATE builder_profiles SET verified = $2, verified_at = $3 WHERE account_id = $1', [accountId, !!verified, at]);
+    return;
+  }
+  const list = readAllBuilderProfiles();
+  const p = list.find((x) => x.accountId === accountId);
+  if (p) { p.verified = !!verified; p.verifiedAt = at; writeAllBuilderProfiles(list); }
 }
 
 async function getBuilderProfile(accountId) {
@@ -617,7 +767,7 @@ async function saveBuilderProfile({ accountId, name, specializations, serviceLoc
   }
   const list = readAllBuilderProfiles();
   const idx = list.findIndex((p) => p.accountId === accountId);
-  if (idx >= 0) list[idx] = record;
+  if (idx >= 0) list[idx] = { ...record, verified: !!list[idx].verified, verifiedAt: list[idx].verifiedAt || null };
   else list.push(record);
   writeAllBuilderProfiles(list);
   return record;
@@ -628,7 +778,7 @@ async function saveBuilderProfile({ accountId, name, specializations, serviceLoc
 async function listBuilderAccounts() {
   if (usePg) {
     const res = await pool.query(`
-      SELECT a.id AS account_id, a.email, bp.name, bp.specializations, bp.service_locations, bp.about, bp.price_range, bp.years_experience, bp.availability, bp.services
+      SELECT a.id AS account_id, a.email, bp.name, bp.specializations, bp.service_locations, bp.about, bp.price_range, bp.years_experience, bp.availability, bp.services, bp.verified, bp.verified_at
       FROM accounts a
       JOIN builder_profiles bp ON bp.account_id = a.id
       WHERE a.role = 'builder'
@@ -701,6 +851,7 @@ async function consumeOtpCode({ email, role, code }) {
 }
 
 module.exports = {
+  getAccountSecrets, updateAccount, saveVerificationRequest, listVerificationRequests, getVerificationRequest, reviewVerificationRequest, setBuilderVerified,
   init, storageMode, saveDesign, listDesignsByAccount, getDesign, deleteDesign,
   saveInquiry, updateInquiry, getInquiry, listInquiriesByAccount, listInquiriesForBuilderAccount,
   saveMessage, listMessages, newId,

@@ -13,13 +13,14 @@ import RelationshipTimeline, { relationshipStatus } from '../components/Relation
 // design (2D / 3D) in the centre, the conversation on the right, and the connection
 // status along the bottom. Both roles use it; what each may see or do depends on the
 // connection status the server reports (contact and chat unlock when the builder accepts).
-export default function ProjectWorkspace({ inquiryId, viewer, onBack, backLabel = 'Back' }) {
+export default function ProjectWorkspace({ inquiryId, viewer, onBack, backLabel = 'Back', onNavigate }) {
   const [data, setData] = useState(null);
   const [error, setError] = useState('');
   const [view, setView] = useState('3d');
   const [busy, setBusy] = useState(false);
   const [quote, setQuote] = useState({ amount: '', weeks: '', notes: '' });
   const [actionError, setActionError] = useState('');
+  const [actionCode, setActionCode] = useState('');
 
   const load = useCallback(() => {
     getInquiry({ id: inquiryId })
@@ -30,7 +31,7 @@ export default function ProjectWorkspace({ inquiryId, viewer, onBack, backLabel 
 
   async function act(fn) {
     setBusy(true); setActionError('');
-    try { await fn(); await load(); } catch (e) { setActionError(e.message || 'Something went wrong.'); }
+    try { await fn(); await load(); } catch (e) { setActionError(e.message || 'Something went wrong.'); setActionCode(e.code || ''); }
     setBusy(false);
   }
 
@@ -91,7 +92,7 @@ export default function ProjectWorkspace({ inquiryId, viewer, onBack, backLabel 
           )}
         </div>
       )}
-      {actionError && <p className="quote-form-error">{actionError}</p>}
+      {actionError && <p className="quote-form-error">{actionError} {actionCode === 'PHONE_NOT_VERIFIED' && <button className="link-btn" onClick={() => onNavigate?.('profile')}>Verify phone</button>}</p>}
 
       <div className="workspace-grid">
         {/* LEFT: project details */}
@@ -115,7 +116,7 @@ export default function ProjectWorkspace({ inquiryId, viewer, onBack, backLabel 
           </div>
 
           {contact ? (
-            <ContactCard title={isBuilder ? 'Customer contact' : 'Builder contact'} name={contact.name || other} email={contact.email} phone={contact.phone} />
+            <ContactCard title={isBuilder ? 'Customer contact' : 'Builder contact'} name={contact.name || other} email={contact.email} phone={contact.phone} emailVerified={contact.emailVerified} phoneVerified={contact.phoneVerified} phoneVerifiedVia={contact.phoneVerifiedVia} />
           ) : inquiry.builderAccountId ? (
             <div className="side-card locked-card"><Lock size={16} /> <span>Contact details unlock after the builder accepts.</span></div>
           ) : null}

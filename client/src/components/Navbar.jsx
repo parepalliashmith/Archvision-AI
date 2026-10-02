@@ -39,7 +39,7 @@ export default function Navbar({ view, onNavigate, savedCount, account, onLogout
   const designRef = useRef(null);
   const accountRef = useRef(null);
 
-  const homeView = account?.role === 'builder' ? 'builder-dashboard' : 'dashboard';
+  const homeView = account?.role === 'builder' ? 'builder-dashboard' : account?.role === 'admin' ? 'admin-verifications' : 'dashboard';
 
   useEffect(() => {
     function onScroll() { setScrolled(window.scrollY > 8); }
@@ -112,7 +112,7 @@ export default function Navbar({ view, onNavigate, savedCount, account, onLogout
             <>
               <button
                 className="navbar-icon-btn"
-                onClick={() => go(account.role === 'builder' ? 'builder-dashboard' : 'my-enquiries')}
+                onClick={() => go(account.role === 'builder' ? 'builder-messages' : account.role === 'admin' ? 'admin-verifications' : 'my-enquiries')}
                 aria-label="Messages"
                 title="Messages"
               >

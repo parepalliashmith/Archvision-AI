@@ -85,9 +85,14 @@ export default function BuilderProfile({ builderId, design, initialIntent, onBac
         <div className="trust-row">
           {isRealBuilder ? (
             <>
-              <span className="trust-item trust-item--ok">✓ Email verified by one-time code</span>
-              <span className="trust-item">Phone provided · not SMS-verified</span>
-              <span className="trust-item">Credentials not reviewed by BuildBridge AI</span>
+              <span className="trust-item trust-item--ok">✓ Email verified</span>
+              {builder.phoneVerified && builder.phoneVerifiedVia === 'sms'
+                ? <span className="trust-item trust-item--ok">✓ Phone verified</span>
+                : builder.phoneVerified ? <span className="trust-item trust-item--demo">Phone confirmed (demo mode)</span>
+                : <span className="trust-item trust-item--warn">Phone not verified</span>}
+              {builder.verified
+                ? <span className="trust-item trust-item--ok">✓ Documents reviewed by BuildBridge AI</span>
+                : <span className="trust-item">Documents not reviewed</span>}
             </>
           ) : (
             <span className="trust-item">Sample profile for demonstration</span>

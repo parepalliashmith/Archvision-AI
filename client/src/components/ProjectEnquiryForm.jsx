@@ -42,6 +42,7 @@ export default function ProjectEnquiryForm({ design, builder, intent, onClose, o
   const [emailSent, setEmailSent] = useState(false);
   const [inquiryId, setInquiryId] = useState(null);
   const [error, setError] = useState('');
+  const [needsPhone, setNeedsPhone] = useState(false);
   // Which design travels with the request: the one being viewed, or any saved design.
   const [saved, setSaved] = useState([]);
   const [attach, setAttach] = useState(design?.layout ? 'current' : 'none');
@@ -82,6 +83,7 @@ export default function ProjectEnquiryForm({ design, builder, intent, onClose, o
       setState('done');
     } catch (err) {
       setError(err.message || 'Something went wrong — please try again.');
+      setNeedsPhone(err.code === 'PHONE_NOT_VERIFIED');
       setState('error');
     }
   }
@@ -174,7 +176,7 @@ export default function ProjectEnquiryForm({ design, builder, intent, onClose, o
           <textarea rows={3} required value={form.message} onChange={update('message')} disabled={state === 'sending'} />
         </label>
       </div>
-      {error && <p className="quote-form-error">{error}</p>}
+      {error && <p className="quote-form-error">{error} {needsPhone && <button type="button" className="link-btn" onClick={() => onNavigate?.('profile')}>Verify phone</button>}</p>}
       <div className="hero-actions">
         <button type="submit" className={'btn btn-primary btn-sm' + (state === 'sending' ? ' btn-loading' : '')} disabled={state === 'sending'}>
           {state === 'sending' ? (<><span className="spinner" /> Sending…</>) : (<><Send size={14} /> Send Project Request</>)}

@@ -363,3 +363,23 @@ Roughly in order of impact:
 ## Credits
 
 Textures, fonts, libraries and services are credited with their licenses in [CREDITS.md](CREDITS.md).
+
+## Accounts and verification
+
+Sign-in is email + password. Registration verifies the email with a one-time code; a phone number is
+verified with a second code. Passwords are hashed with scrypt, five wrong passwords lock an account for
+15 minutes, and changing or resetting a password signs out every older session.
+
+Builders can submit an ID and a licence/registration document (images or PDF, up to 3 MB each). A staff
+account reviews them and an approval shows the public **Verified** badge. Documents are only visible to staff.
+
+Environment variables (all optional except where noted for production):
+
+| Variable | Purpose |
+|---|---|
+| `SESSION_SECRET` | Signs session tokens. Set it in production. |
+| `BREVO_API_KEY` / `RESEND_API_KEY` | Sends the email codes. Without one, codes are returned in the response (dev only). |
+| `ADMIN_EMAILS` | Comma-separated emails allowed to create a **staff** account and review builder documents. |
+| `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, `TWILIO_FROM` | Sends phone codes by SMS. Without them the app is in **demo mode**: the code is shown on screen and the phone is labelled "confirmed in demo mode", not "verified". |
+
+Accounts created before passwords existed have no password: use **Forgot password** once to set one.

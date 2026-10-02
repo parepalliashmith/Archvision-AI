@@ -1,4 +1,4 @@
-// Stateless session tokens for the email-OTP login system — signed with
+// Stateless session tokens for the password login system (sv = the account's session version) — signed with
 // HMAC-SHA256 (crypto.createHmac, the same primitive server.js already uses
 // for the per-inquiry builderToken) rather than a JWT library, since a plain
 // signed-and-expiring payload is all a demo-scale login needs.
@@ -22,8 +22,8 @@ function sign(payload) {
   return `${body}.${sig}`;
 }
 
-function issueToken({ accountId, role }) {
-  return sign({ accountId, role, exp: Date.now() + TOKEN_TTL_MS });
+function issueToken({ accountId, role, sv = 0 }) {
+  return sign({ accountId, role, sv, exp: Date.now() + TOKEN_TTL_MS });
 }
 
 function verifyToken(token) {
