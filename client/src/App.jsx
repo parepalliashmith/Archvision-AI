@@ -238,7 +238,7 @@ export default function App() {
   const needsBuilderLogin = BUILDER_VIEWS.includes(view) && (!account || account.role !== 'builder');
 
   const bleed = view === 'home';
-  const withSidebar = !!account && SIDEBAR_VIEWS.includes(view) && !needsCustomerLogin && !needsBuilderLogin;
+  const withSidebar = !['login', 'builder-reply', 'builder-profile-setup'].includes(view);
 
   const pages = needsCustomerLogin || needsBuilderLogin ? (
     <LoginPrompt onNavigate={navigate} />

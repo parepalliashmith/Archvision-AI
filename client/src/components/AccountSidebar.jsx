@@ -1,4 +1,4 @@
-import { Briefcase, Calculator, FileText, FolderOpen, Home, Inbox, LayoutDashboard, MessageCircle, Settings, User, UserSearch } from 'lucide-react';
+import { Briefcase, CircleDollarSign, HelpCircle, LogIn, PencilRuler, Calculator, FileText, FolderOpen, Home, Inbox, LayoutDashboard, MessageCircle, Settings, User, UserSearch } from 'lucide-react';
 
 const CUSTOMER_ITEMS = [
   { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
@@ -19,6 +19,16 @@ const BUILDER_ITEMS = [
   { id: 'settings', label: 'Settings', icon: Settings },
 ];
 
+const GUEST_ITEMS = [
+  { id: 'home', label: 'Home', icon: Home },
+  { id: 'create', label: 'Design', icon: PencilRuler, match: ['create', 'upload'] },
+  { id: 'cost-estimator', label: 'Cost Estimator', icon: Calculator },
+  { id: 'find-builders', label: 'Find a Builder', icon: UserSearch, match: ['find-builders', 'builder-profile'] },
+  { id: 'how-it-works', label: 'How It Works', icon: HelpCircle },
+  { id: 'pricing', label: 'Pricing', icon: CircleDollarSign },
+  { id: 'login', label: 'Sign In', icon: LogIn },
+];
+
 export const SIDEBAR_VIEWS = [
   'dashboard', 'my-designs', 'compare', 'find-builders', 'builder-profile', 'my-enquiries', 'my-enquiry',
   'my-projects', 'cost-estimator', 'documents', 'profile', 'settings', 'builder-dashboard',
@@ -27,9 +37,9 @@ export const SIDEBAR_VIEWS = [
 // Dark left rail for the signed-in area: brand on top, navigation, promo card at the
 // bottom. On phones it collapses into a horizontally scrolling pill bar.
 export default function AccountSidebar({ view, account, onNavigate }) {
-  const items = account?.role === 'builder' ? BUILDER_ITEMS : CUSTOMER_ITEMS;
+  const items = !account ? GUEST_ITEMS : account.role === 'builder' ? BUILDER_ITEMS : CUSTOMER_ITEMS;
   return (
-    <aside className="account-sidebar">
+    <aside className={'account-sidebar' + (account ? '' : ' account-sidebar--guest')}>
       <button className="sidebar-brand" onClick={() => onNavigate('home')}>
         <span className="sidebar-brand-mark"><Home size={26} strokeWidth={1.8} /></span>
         <span className="sidebar-brand-text">

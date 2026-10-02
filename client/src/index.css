@@ -1123,3 +1123,7 @@ img { max-width: 100%; }
 .action-grid { grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); }
 .action-card small { max-width: none; padding-right: 22px; }
 .dash-strip { gap: 14px; }
+
+@media (max-width: 980px) { .account-sidebar--guest { display: none; } }
+
+@media (min-width: 981px) { .app-shell.has-sidebar .navbar-links { display: none; } .app-shell.has-sidebar .navbar-actions { margin-left: auto; } }
