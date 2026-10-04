@@ -13,6 +13,20 @@ import { buildHouseModel } from '../three/houseModel.js';
 import { buildElevations } from '../three/elevations.js';
 
 const STYLE_OPTIONS = ['Modern', 'Traditional', 'Contemporary', 'Farmhouse', 'Compact urban', 'Minimalist', 'Mediterranean', 'Colonial', 'Industrial', 'Scandinavian', 'Modern Elevation'];
+// One-line description shown on each style card.
+const STYLE_INFO = {
+  Modern: 'Flat roof, clean lines, large glass',
+  Traditional: 'Pitched roof, shutters, chimney',
+  Contemporary: 'Mixed volumes, neutral palette',
+  Farmhouse: 'Deep veranda, steep roof',
+  'Compact urban': 'Brick, efficient footprint',
+  Minimalist: 'Pure white, hidden detail',
+  Mediterranean: 'Warm stucco, terracotta roof',
+  Colonial: 'Brick, symmetry, dark roof',
+  Industrial: 'Concrete, steel, raw finish',
+  Scandinavian: 'Light walls, timber accents',
+  'Modern Elevation': 'Timber cladding, vertical fins, car porch',
+};
 const KITCHEN_OPTIONS = ['Open-plan', 'Closed / separate', 'Modular'];
 const LIVING_OPTIONS = ['Compact', 'Medium', 'Large / open-plan'];
 
@@ -358,13 +372,6 @@ export default function CreateDesign({ loadedDesign, onSave, onFindBuilder, onNa
               </select>
             </label>
             <label className="gen-field">
-              <span>Style</span>
-              <select value={form.style} onChange={(e) => update('style', e.target.value)}>
-                <option value="">Any</option>
-                {STYLE_OPTIONS.map((o) => <option key={o} value={o}>{o}</option>)}
-              </select>
-            </label>
-            <label className="gen-field">
               <span>Kitchen</span>
               <select value={form.kitchen} onChange={(e) => update('kitchen', e.target.value)}>
                 <option value="">No preference</option>
@@ -378,6 +385,20 @@ export default function CreateDesign({ loadedDesign, onSave, onFindBuilder, onNa
                 {LIVING_OPTIONS.map((o) => <option key={o} value={o}>{o}</option>)}
               </select>
             </label>
+          </div>
+
+          <p className="gen-label">House style</p>
+          <div className="style-picker" role="radiogroup" aria-label="House style">
+            {[['', 'Any', 'Let the generator choose'], ...STYLE_OPTIONS.map((o) => [o, o, STYLE_INFO[o] || ''])].map(([value, label, hint]) => (
+              <button
+                type="button" key={label} role="radio" aria-checked={form.style === value}
+                className={'style-card' + (form.style === value ? ' on' : '')}
+                onClick={() => update('style', value)}
+              >
+                <strong>{label}</strong>
+                <small>{hint}</small>
+              </button>
+            ))}
           </div>
 
           <p className="gen-label">Additional preferences <em>(optional)</em></p>

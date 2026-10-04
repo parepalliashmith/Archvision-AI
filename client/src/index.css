@@ -1305,3 +1305,11 @@ img { max-width: 100%; }
 .trust-item--warn { background: #fbe8e5; border-color: #c8663f; color: #9a3324; }
 .phone-verify { margin-top: 12px; padding-top: 12px; border-top: 1px dashed var(--border); }
 .verify-page { max-width: 760px; display: flex; flex-direction: column; gap: 14px; }
+
+/* ---- house style picker ---- */
+.style-picker { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 8px; }
+.style-card { display: flex; flex-direction: column; gap: 3px; text-align: left; padding: 11px 13px; border-radius: 10px; cursor: pointer; font: inherit;
+  background: rgba(255, 255, 255, 0.05); border: 1px solid rgba(255, 255, 255, 0.18); color: rgba(255, 255, 255, 0.85); }
+.style-card strong { font-size: 0.86rem; color: #fff; } .style-card small { font-size: 0.7rem; line-height: 1.3; color: rgba(255, 255, 255, 0.6); }
+.style-card:hover { border-color: rgba(255, 255, 255, 0.45); }
+.style-card.on { border-color: var(--teal); background: rgba(26, 154, 168, 0.2); box-shadow: 0 0 0 1px var(--teal) inset; }
